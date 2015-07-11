@@ -195,6 +195,9 @@ public class MultiEventBus<B extends EventBus> implements IEventBus {
 
 	@Override
 	public final <T extends IEvent> T postEvent(T event) {
+		if(this.currentBus == null) {
+			throw new NullPointerException("Bus has not been compiled");
+		}
 		if(this.singleBus) {
 			event = this.currentBus.postEvent(event);
 		} else {
@@ -211,6 +214,9 @@ public class MultiEventBus<B extends EventBus> implements IEventBus {
 
 	@Override
 	public final <T extends IEventCancellable> T postEventCancellable(T event) {
+		if(this.currentBus == null) {
+			throw new NullPointerException("Bus has not been compiled");
+		}
 		if(this.singleBus) {
 			event = this.currentBus.postEventCancellable(event);
 		} else {

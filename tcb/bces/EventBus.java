@@ -16,6 +16,7 @@ import java.util.Map.Entry;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
@@ -113,6 +114,7 @@ public class EventBus implements IEventBus {
 		private final boolean forced;
 		private final int priority;
 		private final IFilter filter;
+		private final boolean acceptSubclasses;
 		private Subscribe handlerAnnotation;
 		public ListenerMethodEntry(IListener instance, Method method, Subscribe handlerAnnotation, IFilter filter) {
 			this.instance = instance;
@@ -122,6 +124,7 @@ public class EventBus implements IEventBus {
 			this.forced = handlerAnnotation.forced();
 			this.priority = handlerAnnotation.priority();
 			this.filter = filter;
+			this.acceptSubclasses = handlerAnnotation.acceptSubclasses();
 		}
 		private IListener getInstance() {
 			return this.instance;
@@ -140,6 +143,9 @@ public class EventBus implements IEventBus {
 		}
 		private IFilter getFilter() {
 			return this.filter;
+		}
+		private boolean acceptsSubclasses() {
+			return this.acceptSubclasses;
 		}
 		private Subscribe getHandlerAnnotation() {
 			return this.handlerAnnotation;
@@ -345,6 +351,9 @@ public class EventBus implements IEventBus {
 				}
 				@SuppressWarnings("unchecked")
 				Class<? extends IEvent> paramType = (Class<? extends IEvent>) method.getParameterTypes()[0];
+				if(paramType.isInterface()) {
+					throw new SubscriptionException("Event type cannot be an interface");
+				}
 				entryList.add(EventBus.initFilter(new MethodEntry(paramType, listener, method, handlerAnnotation)));
 			}
 		}
@@ -655,7 +664,10 @@ public class EventBus implements IEventBus {
 					/*
 					 * Pseudo code, runs for every listener method:
 					 * 
+					 * //Optional check, only present if subclasses are also accepted
 					 * if(event instanceof listenerArray[n].eventType) {
+					 * //Replacement for when subclasses are not accepted
+					 * if(event.getClass() == listenerArray[n].eventType) {
 					 * 
 					 *   //Optional check, only present if filter is not default IFilter class
 					 *   if(filterArray[p].filter(listenerArray[n], event) {
@@ -682,200 +694,73 @@ public class EventBus implements IEventBus {
 					 * ...
 					 */
 
-					//Fail label, jumped to if instanceof fails
-					LabelNode instanceofFailLabelNode = new LabelNode();
+					boolean hasNonSCA = false;
+					boolean hasSCA = false;
 
-					//if(event instanceof eventclass  == false) -> jump to instanceofFailLabelNode
-					instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
-					instructionSet.add(new TypeInsnNode(Opcodes.INSTANCEOF, eventClassName));
-					instructionSet.add(new JumpInsnNode(Opcodes.IFEQ, instanceofFailLabelNode));
+					//Contains all non SCA (SubClasses Accepted) listener entries
+					List<ListenerMethodEntry> listNonSCA = new ArrayList<ListenerMethodEntry>();
 
-					//Inside if body
+					//Contains all SCA listener entries
+					List<ListenerMethodEntry> listSCA = new ArrayList<ListenerMethodEntry>();
+
+					//Check SCA and non SCA listener entries
 					for(ListenerMethodEntry listenerEntry : e.getValue()) {
-						String className = MethodStubImpl.class.getName().replace(".", "/");
-						String fieldType = "[L" + IListener.class.getName().replace(".", "/") + ";";
-						String listenerClassName = listenerEntry.getInstance().getClass().getName().replace(".", "/");
-						String listenerMethodName = listenerEntry.getMethodName();
-						String listenerMethodType = "(L" + e.getKey().getName().replace(".", "/") + ";)V";
-						int listenerIndex = this.indexLookup.get(listenerEntry.getInstance());
-
-						//if(!filterArray[n].filter(listenerArray[p], event)) -> jump to filterFailLabelNode
-						LabelNode filterFailLabelNode = null;
-						//Only implement if filter is not default IFilter class
-						if(listenerEntry.getFilter() != null) {
-							filterFailLabelNode = new LabelNode();
-							int filterIndex = this.filterIndexLookup.get(listenerEntry);
-							String filterClassName = listenerEntry.getFilter().getClass().getName().replace(".", "/");
-							String filterFieldType = "[L" + IFilter.class.getName().replace(".", "/") + ";";
-							String filterMethodType = "(L" + IEvent.class.getName().replace(".", "/") + ";)Z";
-							//load instance of this class ('this' keyword)
-							instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
-							//get filter array
-							instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, METHODSTUB_FILTER_ARRAY, filterFieldType));
-							//push index onto stack
-							//some tiny bytecode optimization
-							if(filterIndex <= 5) {
-								switch(filterIndex) {
-								case 0:
-									instructionSet.add(new InsnNode(Opcodes.ICONST_0));
-									break;
-								case 1:
-									instructionSet.add(new InsnNode(Opcodes.ICONST_1));
-									break;
-								case 2:
-									instructionSet.add(new InsnNode(Opcodes.ICONST_2));
-									break;
-								case 3:
-									instructionSet.add(new InsnNode(Opcodes.ICONST_3));
-									break;
-								case 4:
-									instructionSet.add(new InsnNode(Opcodes.ICONST_4));
-									break;
-								case 5:
-									instructionSet.add(new InsnNode(Opcodes.ICONST_5));
-									break;
-								}
-							} else if(filterIndex <= Byte.MAX_VALUE) {
-								instructionSet.add(new IntInsnNode(Opcodes.BIPUSH, filterIndex));
-							} else if(filterIndex <= Short.MAX_VALUE) {
-								instructionSet.add(new IntInsnNode(Opcodes.SIPUSH, filterIndex));
-							} else {
-								instructionSet.add(new LdcInsnNode(filterIndex));
-							}
-							//load filter from array
-							instructionSet.add(new InsnNode(Opcodes.AALOAD));
-							//cast filter type
-							instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, filterClassName));
-							//load event
-							instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
-							//invoke verify(listener, event), return boolean
-							instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, filterClassName, IFILTER_FILTER, filterMethodType, false));
-							//jump if false
-							instructionSet.add(new JumpInsnNode(Opcodes.IFEQ, filterFailLabelNode));
+						if(!listenerEntry.acceptsSubclasses()) {
+							hasNonSCA = true;
+							listNonSCA.add(listenerEntry);
+							continue;
 						}
-
-						if(cancellable) {
-							LabelNode instanceofEventCancellableFailLabel = new LabelNode();
-							//load event
-							instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
-							//event instanceof EventCancellable
-							instructionSet.add(new TypeInsnNode(Opcodes.INSTANCEOF, IEventCancellable.class.getName().replace(".", "/")));
-							//if(event instanceof EventCancellable == false) -> jump to instanceofEventCancellableFailLabel
-							instructionSet.add(new JumpInsnNode(Opcodes.IFEQ, instanceofEventCancellableFailLabel));
-							//load event
-							instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
-							//cast event to EventCancellable
-							instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, eventClassName));
-							//invoke EventCancellable#isCancelled
-							instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, eventClassName, IEVENTCANCELLABLE_ISCANCELLED, "()Z", false));
-							//if(!EventCancellable#isCancelled()) -> jump to exitNode
-							instructionSet.add(new JumpInsnNode(Opcodes.IFNE, exitNode));
-							instructionSet.add(instanceofEventCancellableFailLabel);
-						}
-
-						//Only implement IListener#isEnabled() check if Receiver#forced() is false
-						if(!listenerEntry.isForced()) {
-							////////////////////////////// Check if listener is enabled //////////////////////////////
-							//load instance of this class ('this' keyword)
-							instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
-							//get listener array
-							instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, METHODSTUB_LISTENER_ARRAY, fieldType));
-							//push index onto stack
-							//some tiny bytecode optimization
-							if(listenerIndex <= 5) {
-								switch(listenerIndex) {
-								case 0:
-									instructionSet.add(new InsnNode(Opcodes.ICONST_0));
-									break;
-								case 1:
-									instructionSet.add(new InsnNode(Opcodes.ICONST_1));
-									break;
-								case 2:
-									instructionSet.add(new InsnNode(Opcodes.ICONST_2));
-									break;
-								case 3:
-									instructionSet.add(new InsnNode(Opcodes.ICONST_3));
-									break;
-								case 4:
-									instructionSet.add(new InsnNode(Opcodes.ICONST_4));
-									break;
-								case 5:
-									instructionSet.add(new InsnNode(Opcodes.ICONST_5));
-									break;
-								}
-							} else if(listenerIndex <= Byte.MAX_VALUE) {
-								instructionSet.add(new IntInsnNode(Opcodes.BIPUSH, listenerIndex));
-							} else if(listenerIndex <= Short.MAX_VALUE) {
-								instructionSet.add(new IntInsnNode(Opcodes.SIPUSH, listenerIndex));
-							} else {
-								instructionSet.add(new LdcInsnNode(listenerIndex));
-							}
-							//load listener from array
-							instructionSet.add(new InsnNode(Opcodes.AALOAD));
-							//cast listener type
-							instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, listenerClassName));
-							//invoke isEnabled, get returned boolean
-							instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, listenerClassName, ILISTENER_ISENABLED, "()Z", false));
-							//jump to failLabelNode if returned boolean is false
-							instructionSet.add(new JumpInsnNode(Opcodes.IFEQ, instanceofFailLabelNode));
-						}
-
-						///////////////////////////////// Invoke listener method /////////////////////////////////
-						//load instance of this class ('this' keyword)
-						instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
-						//get listener array
-						instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, METHODSTUB_LISTENER_ARRAY, fieldType));
-						//push index onto stack
-						//some tiny bytecode optimization
-						if(listenerIndex <= 5) {
-							switch(listenerIndex) {
-							case 0:
-								instructionSet.add(new InsnNode(Opcodes.ICONST_0));
-								break;
-							case 1:
-								instructionSet.add(new InsnNode(Opcodes.ICONST_1));
-								break;
-							case 2:
-								instructionSet.add(new InsnNode(Opcodes.ICONST_2));
-								break;
-							case 3:
-								instructionSet.add(new InsnNode(Opcodes.ICONST_3));
-								break;
-							case 4:
-								instructionSet.add(new InsnNode(Opcodes.ICONST_4));
-								break;
-							case 5:
-								instructionSet.add(new InsnNode(Opcodes.ICONST_5));
-								break;
-							}
-						} else if(listenerIndex <= Byte.MAX_VALUE) {
-							instructionSet.add(new IntInsnNode(Opcodes.BIPUSH, listenerIndex));
-						} else if(listenerIndex <= Short.MAX_VALUE) {
-							instructionSet.add(new IntInsnNode(Opcodes.SIPUSH, listenerIndex));
-						} else {
-							instructionSet.add(new LdcInsnNode(listenerIndex));
-						}
-						//load listener from array
-						instructionSet.add(new InsnNode(Opcodes.AALOAD));
-						//cast listener type
-						instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, listenerClassName));
-						//load parameter
-						instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
-						//cast parameter type
-						instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, eventClassName));
-						//invoke method
-						instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, listenerClassName, listenerMethodName, listenerMethodType, false));
-
-						//Only implement if filter is not default IFilter class
-						if(filterFailLabelNode != null) {
-							instructionSet.add(filterFailLabelNode);
-						}
+						hasSCA = true;
+						listSCA.add(listenerEntry);
 					}
 
-					//failLabelNode
-					instructionSet.add(instanceofFailLabelNode);
+					//Instrument dispatcher methods that accept subclasses
+					if(hasSCA) {
+						//Fail label, jumped to if instanceof fails
+						LabelNode instanceofFailLabelNode = new LabelNode();
+
+						//if(event instanceof eventclass  == false) -> jump to instanceofFailLabelNode
+						instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
+						instructionSet.add(new TypeInsnNode(Opcodes.INSTANCEOF, eventClassName));
+						instructionSet.add(new JumpInsnNode(Opcodes.IFEQ, instanceofFailLabelNode));
+
+						for(ListenerMethodEntry listenerEntry : listSCA) {
+							this.instrumentMethodEntryDispatcher(instructionSet, listenerEntry, e, 
+									eventClassName, cancellable, exitNode, 
+									instanceofFailLabelNode);
+						}
+
+						//failLabelNode
+						instructionSet.add(instanceofFailLabelNode);
+					}
+
+					//Instrument dispatcher methods that don't accept subclasses
+					if(hasNonSCA) {
+						//Fail label, jumped to if class comparison fails
+						LabelNode classCompareFailLabelNode = new LabelNode();
+
+						//if(event.getClass() != listenerArray[n].eventType) -> jump to classCompareFailLabelNode
+						instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
+						instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Object", "getClass", "()Ljava/lang/Class;", false));
+						String eventClassNameClass = "L" + eventClassName + ";";
+						instructionSet.add(new LdcInsnNode(Type.getType(eventClassNameClass)));
+						instructionSet.add(new JumpInsnNode(Opcodes.IF_ACMPNE, classCompareFailLabelNode));
+
+						for(ListenerMethodEntry listenerEntry : listNonSCA) {
+							this.instrumentMethodEntryDispatcher(instructionSet, listenerEntry, e, 
+									eventClassName, cancellable, exitNode, 
+									classCompareFailLabelNode);
+						}
+
+						//failLabelNode
+						instructionSet.add(classCompareFailLabelNode);
+					}
 				}
+
+				//exitNode
 				instructionSet.add(exitNode);
+
+				//Instrumentation callback to let the user modify the dispatching bytecode
 				if(this.instrumentDistributor(instructionSet, methodNode)) {
 					for(AbstractInsnNode insnNode : instructionSet) {
 						methodInstructionSet.insertBefore(insn, insnNode);
@@ -884,6 +769,201 @@ public class EventBus implements IEventBus {
 			}
 		}
 		methodNode.visitMaxs(0, 0);
+	}
+
+	/**
+	 * Instruments the dispatcher method for a listener entry
+	 * @param instructionSet
+	 * @param listenerEntry
+	 * @param entryList
+	 * @param eventClassName
+	 * @param cancellable
+	 * @param exitLabelNode
+	 * @param failailLabelNode
+	 */
+	private void instrumentMethodEntryDispatcher(ArrayList<AbstractInsnNode> instructionSet, ListenerMethodEntry listenerEntry, 
+			Entry<Class<? extends IEvent>, List<ListenerMethodEntry>> entryList, String eventClassName, boolean cancellable,
+			LabelNode exitLabelNode, LabelNode failailLabelNode) {
+		String className = MethodStubImpl.class.getName().replace(".", "/");
+		String fieldType = "[L" + IListener.class.getName().replace(".", "/") + ";";
+		String listenerClassName = listenerEntry.getInstance().getClass().getName().replace(".", "/");
+		String listenerMethodName = listenerEntry.getMethodName();
+		String listenerMethodType = "(L" + entryList.getKey().getName().replace(".", "/") + ";)V";
+		int listenerIndex = this.indexLookup.get(listenerEntry.getInstance());
+
+		//Used for filter fail jump or subclass check fail jump (only if subclasses are not accepted)
+		LabelNode entryFailLabelNode = null;
+
+		//Only implement if filter is not default IFilter class
+		//if(!filterArray[n].filter(listenerArray[p], event)) -> jump to entryFailLabelNode
+		if(listenerEntry.getFilter() != null) {
+			entryFailLabelNode = new LabelNode();
+			int filterIndex = this.filterIndexLookup.get(listenerEntry);
+			String filterClassName = listenerEntry.getFilter().getClass().getName().replace(".", "/");
+			String filterFieldType = "[L" + IFilter.class.getName().replace(".", "/") + ";";
+			String filterMethodType = "(L" + IEvent.class.getName().replace(".", "/") + ";)Z";
+			//load instance of this class ('this' keyword)
+			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
+			//get filter array
+			instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, METHODSTUB_FILTER_ARRAY, filterFieldType));
+			//push index onto stack
+			//some tiny bytecode optimization
+			if(filterIndex <= 5) {
+				switch(filterIndex) {
+				case 0:
+					instructionSet.add(new InsnNode(Opcodes.ICONST_0));
+					break;
+				case 1:
+					instructionSet.add(new InsnNode(Opcodes.ICONST_1));
+					break;
+				case 2:
+					instructionSet.add(new InsnNode(Opcodes.ICONST_2));
+					break;
+				case 3:
+					instructionSet.add(new InsnNode(Opcodes.ICONST_3));
+					break;
+				case 4:
+					instructionSet.add(new InsnNode(Opcodes.ICONST_4));
+					break;
+				case 5:
+					instructionSet.add(new InsnNode(Opcodes.ICONST_5));
+					break;
+				}
+			} else if(filterIndex <= Byte.MAX_VALUE) {
+				instructionSet.add(new IntInsnNode(Opcodes.BIPUSH, filterIndex));
+			} else if(filterIndex <= Short.MAX_VALUE) {
+				instructionSet.add(new IntInsnNode(Opcodes.SIPUSH, filterIndex));
+			} else {
+				instructionSet.add(new LdcInsnNode(filterIndex));
+			}
+			//load filter from array
+			instructionSet.add(new InsnNode(Opcodes.AALOAD));
+			//cast filter type
+			instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, filterClassName));
+			//load event
+			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
+			//invoke verify(listener, event), return boolean
+			instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, filterClassName, IFILTER_FILTER, filterMethodType, false));
+			//jump if false
+			instructionSet.add(new JumpInsnNode(Opcodes.IFEQ, entryFailLabelNode));
+		}
+
+		if(cancellable) {
+			LabelNode instanceofEventCancellableFailLabel = new LabelNode();
+			//load event
+			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
+			//event instanceof EventCancellable
+			instructionSet.add(new TypeInsnNode(Opcodes.INSTANCEOF, IEventCancellable.class.getName().replace(".", "/")));
+			//if(event instanceof EventCancellable == false) -> jump to instanceofEventCancellableFailLabel
+			instructionSet.add(new JumpInsnNode(Opcodes.IFEQ, instanceofEventCancellableFailLabel));
+			//load event
+			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
+			//cast event to EventCancellable
+			instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, eventClassName));
+			//invoke EventCancellable#isCancelled
+			instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, eventClassName, IEVENTCANCELLABLE_ISCANCELLED, "()Z", false));
+			//if(!EventCancellable#isCancelled()) -> jump to exitNode
+			instructionSet.add(new JumpInsnNode(Opcodes.IFNE, exitLabelNode));
+			instructionSet.add(instanceofEventCancellableFailLabel);
+		}
+
+		//Only implement IListener#isEnabled() check if Receiver#forced() is false
+		if(!listenerEntry.isForced()) {
+			////////////////////////////// Check if listener is enabled //////////////////////////////
+			//load instance of this class ('this' keyword)
+			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
+			//get listener array
+			instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, METHODSTUB_LISTENER_ARRAY, fieldType));
+			//push index onto stack
+			//some tiny bytecode optimization
+			if(listenerIndex <= 5) {
+				switch(listenerIndex) {
+				case 0:
+					instructionSet.add(new InsnNode(Opcodes.ICONST_0));
+					break;
+				case 1:
+					instructionSet.add(new InsnNode(Opcodes.ICONST_1));
+					break;
+				case 2:
+					instructionSet.add(new InsnNode(Opcodes.ICONST_2));
+					break;
+				case 3:
+					instructionSet.add(new InsnNode(Opcodes.ICONST_3));
+					break;
+				case 4:
+					instructionSet.add(new InsnNode(Opcodes.ICONST_4));
+					break;
+				case 5:
+					instructionSet.add(new InsnNode(Opcodes.ICONST_5));
+					break;
+				}
+			} else if(listenerIndex <= Byte.MAX_VALUE) {
+				instructionSet.add(new IntInsnNode(Opcodes.BIPUSH, listenerIndex));
+			} else if(listenerIndex <= Short.MAX_VALUE) {
+				instructionSet.add(new IntInsnNode(Opcodes.SIPUSH, listenerIndex));
+			} else {
+				instructionSet.add(new LdcInsnNode(listenerIndex));
+			}
+			//load listener from array
+			instructionSet.add(new InsnNode(Opcodes.AALOAD));
+			//cast listener type
+			instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, listenerClassName));
+			//invoke isEnabled, get returned boolean
+			instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, listenerClassName, ILISTENER_ISENABLED, "()Z", false));
+			//jump to failLabelNode if returned boolean is false
+			instructionSet.add(new JumpInsnNode(Opcodes.IFEQ, failailLabelNode));
+		}
+
+		///////////////////////////////// Invoke listener method /////////////////////////////////
+		//load instance of this class ('this' keyword)
+		instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
+		//get listener array
+		instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, METHODSTUB_LISTENER_ARRAY, fieldType));
+		//push index onto stack
+		//some tiny bytecode optimization
+		if(listenerIndex <= 5) {
+			switch(listenerIndex) {
+			case 0:
+				instructionSet.add(new InsnNode(Opcodes.ICONST_0));
+				break;
+			case 1:
+				instructionSet.add(new InsnNode(Opcodes.ICONST_1));
+				break;
+			case 2:
+				instructionSet.add(new InsnNode(Opcodes.ICONST_2));
+				break;
+			case 3:
+				instructionSet.add(new InsnNode(Opcodes.ICONST_3));
+				break;
+			case 4:
+				instructionSet.add(new InsnNode(Opcodes.ICONST_4));
+				break;
+			case 5:
+				instructionSet.add(new InsnNode(Opcodes.ICONST_5));
+				break;
+			}
+		} else if(listenerIndex <= Byte.MAX_VALUE) {
+			instructionSet.add(new IntInsnNode(Opcodes.BIPUSH, listenerIndex));
+		} else if(listenerIndex <= Short.MAX_VALUE) {
+			instructionSet.add(new IntInsnNode(Opcodes.SIPUSH, listenerIndex));
+		} else {
+			instructionSet.add(new LdcInsnNode(listenerIndex));
+		}
+		//load listener from array
+		instructionSet.add(new InsnNode(Opcodes.AALOAD));
+		//cast listener type
+		instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, listenerClassName));
+		//load parameter
+		instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
+		//cast parameter type
+		instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, eventClassName));
+		//invoke method
+		instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, listenerClassName, listenerMethodName, listenerMethodType, false));
+
+		//Only implement if filter is not default IFilter class or subclasses are not accepted
+		if(entryFailLabelNode != null) {
+			instructionSet.add(entryFailLabelNode);
+		}
 	}
 
 	/**
