@@ -4,7 +4,7 @@ import tcb.bces.async.feedback.IFeedbackHandler;
 import tcb.bces.event.IEvent;
 
 /**
- * A basic implementation of {@link IFeedbackHandler}.
+ * An abstract feedback handler class that implements {@link IFeedbackHandler}.
  * 
  * @author TCB
  *

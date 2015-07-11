@@ -3,7 +3,7 @@ package tcb.bces.listener.impl;
 import tcb.bces.listener.IListener;
 
 /**
- * A basic implementation of {@link IListener}.
+ * An abstract listener class that implements {@link IListener}.
  * 
  * @author TCB
  *

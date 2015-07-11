@@ -24,14 +24,14 @@ public @interface Subscribe {
 	 * @return Boolean
 	 */
 	boolean forced() default false;
-	
+
 	/**
 	 * Sets the listener priority. Higher priorities are called before lower priorities.
 	 * The priority is by default 0.
 	 * @return Priority
 	 */
 	int priority() default 0;
-	
+
 	/**
 	 * Sets the event filter. If the filter returns false, the event is not passed to
 	 * the listener. The filter must implement {@link IFilter} and have a custom no-arg constructor 

@@ -9,7 +9,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingDeque;
 
 import tcb.bces.EventBus;
-import tcb.bces.IBus;
+import tcb.bces.IEventBus;
 import tcb.bces.MultiEventBus;
 import tcb.bces.async.feedback.IFeedbackHandler;
 import tcb.bces.event.IEvent;
@@ -22,6 +22,8 @@ import tcb.bces.event.IEventCancellable;
  * The event post result can be retrieved by setting a custom {@link IFeedbackHandler}.
  * If {@link MultiEventBus} is used to wrap this bus, the feedback handler has to be set
  * before this bus is wrapped in order for it to work correctly.
+ * This event bus should be used when the listeners take a long time to process the received
+ * events.
  * 
  * @author TCB
  *
@@ -34,6 +36,8 @@ public class AsyncEventBus extends EventBus {
 	private final ArrayList<Dispatcher> sleepers = new ArrayList<Dispatcher>();
 	private final int cthreads;
 	private final boolean manualDispatcherManagement;
+	protected final Object eventLock = new Object();
+	protected final Object eventCancellableLock = new Object();
 
 	/**
 	 * The default asynchronous event bus has a limit of {@link EventBus#MAX_METHODS} listening methods. 
@@ -71,7 +75,7 @@ public class AsyncEventBus extends EventBus {
 	}
 
 	/**
-	 * Only used for {@link IBus#copyBus()}.
+	 * Only used for {@link IEventBus#copyBus()}.
 	 * Shares the threads with the parent bus.
 	 * @param threads Integer
 	 * @param dispatchers ArrayList<Dispatcher>
@@ -127,7 +131,9 @@ public class AsyncEventBus extends EventBus {
 	 * @param dispatcher Dispatcher
 	 */
 	protected final void addToSleepers(Dispatcher dispatcher) {
-		this.sleepers.add(dispatcher);
+		synchronized(this) {
+			this.sleepers.add(dispatcher);
+		}
 	}
 
 	/**
@@ -135,8 +141,12 @@ public class AsyncEventBus extends EventBus {
 	 * Removes a dispatcher from the sleeper list.
 	 * @param dispatcher Dispatcher
 	 */
-	protected final void removeFromSleepers(Dispatcher dispatcher) {
-		this.sleepers.remove(dispatcher);
+	protected synchronized final void removeFromSleepers(Dispatcher dispatcher) {
+		synchronized(this) {
+			if(this.sleepers.contains(dispatcher)) {
+				this.sleepers.remove(dispatcher);
+			}
+		}
 	}
 
 	/**
@@ -246,11 +256,13 @@ public class AsyncEventBus extends EventBus {
 	 */
 	public final void stopDispatchers() {
 		try {
-			for(Dispatcher dispatcher : this.dispatchers) {
-				dispatcher.stopDispatcher();
+			synchronized(this) {
+				for(Dispatcher dispatcher : this.dispatchers) {
+					dispatcher.stopDispatcher();
+				}
+				this.dispatchers.clear();
+				this.sleepers.clear();
 			}
-			this.dispatchers.clear();
-			this.sleepers.clear();
 		} catch(Exception ex) {
 			ex.printStackTrace();
 		}
@@ -268,7 +280,7 @@ public class AsyncEventBus extends EventBus {
 	}
 
 	@Override
-	public IBus copyBus() {
+	public IEventBus copyBus() {
 		return new AsyncEventBus(this.cthreads, this.manualDispatcherManagement, this.feedbackHandler);
 	}
 }

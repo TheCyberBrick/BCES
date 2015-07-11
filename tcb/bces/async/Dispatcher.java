@@ -16,7 +16,7 @@ import tcb.bces.event.IEventCancellable;
 public class Dispatcher extends Thread {
 	private final EventBus dispatcherBus;
 	private final AsyncEventBus bus;
-	private boolean runDispatcher = false;
+	private boolean runDispatcher = true;
 	private boolean sleeping = false;
 	private long startTime;
 
@@ -42,38 +42,43 @@ public class Dispatcher extends Thread {
 	protected final EventBus getDispatcherBus() {
 		return this.dispatcherBus;
 	}
-	
+
 	@Override
 	public void run() {
+		Thread.currentThread().setName("Dispatcher Thread");
 		this.startTime = System.currentTimeMillis();
 		while(this.runDispatcher) {
-			if(this.bus.getEventQueue().size() > 0) {
-				try {
-					IEvent event = this.bus.eventQueue.take();
-					event = this.dispatcherBus.postEvent(event);
-					if(this.bus.feedbackHandler != null) {
-						synchronized(this.bus.feedbackHandler) {
-							this.bus.feedbackHandler.handleFeedback(event);
+			synchronized(this.bus.eventLock) {
+				if(this.bus.getEventQueue().size() > 0) {
+					try {
+						IEvent event = this.bus.eventQueue.take();
+						event = this.dispatcherBus.postEvent(event);
+						if(this.bus.feedbackHandler != null) {
+							synchronized(this.bus.feedbackHandler) {
+								this.bus.feedbackHandler.handleFeedback(event);
+							}
 						}
+					} catch (InterruptedException e) {
+						e.printStackTrace();
 					}
-				} catch (InterruptedException e) {
-					e.printStackTrace();
+					this.startTime = System.currentTimeMillis();
 				}
-				this.startTime = System.currentTimeMillis();
 			}
-			if(this.bus.getEventQueueCancellable().size() > 0) {
-				try {
-					IEventCancellable event = this.bus.eventQueueCancellable.take();
-					event = this.dispatcherBus.postEventCancellable(event);
-					if(this.bus.feedbackHandler != null) {
-						synchronized(this.bus.feedbackHandler) {
-							this.bus.feedbackHandler.handleFeedback(event);
+			synchronized(this.bus.eventCancellableLock) {
+				if(this.bus.getEventQueueCancellable().size() > 0) {
+					try {
+						IEventCancellable event = this.bus.eventQueueCancellable.take();
+						event = this.dispatcherBus.postEventCancellable(event);
+						if(this.bus.feedbackHandler != null) {
+							synchronized(this.bus.feedbackHandler) {
+								this.bus.feedbackHandler.handleFeedback(event);
+							}
 						}
+					} catch (InterruptedException e) {
+						e.printStackTrace();
 					}
-				} catch (InterruptedException e) {
-					e.printStackTrace();
+					this.startTime = System.currentTimeMillis();
 				}
-				this.startTime = System.currentTimeMillis();
 			}
 			if(!this.bus.hasManualManagement() && this.runDispatcher &&
 					this.bus.getEventQueue().size() == 0 &&
@@ -100,10 +105,12 @@ public class Dispatcher extends Thread {
 	public synchronized void setSleeping(boolean sleep) {
 		if(sleep && !this.isSleeping()) {
 			try {
+				this.sleeping = true;
+				this.bus.addToSleepers(this);
 				synchronized(this) {
-					this.sleeping = true;
-					this.bus.addToSleepers(this);
 					this.wait();
+				}
+				if(this.sleeping) {
 					this.bus.removeFromSleepers(this);
 					this.sleeping = false;
 				}
@@ -129,9 +136,11 @@ public class Dispatcher extends Thread {
 	 * Starts the dispatcher.
 	 */
 	public synchronized void startDispatcher() {
-		this.runDispatcher = true;
-		this.start();
-		this.setSleeping(false);
+		if(this.runDispatcher) {
+			this.runDispatcher = true;
+			this.start();
+			this.setSleeping(false);
+		}
 	}
 
 	/**

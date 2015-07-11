@@ -3,7 +3,7 @@ package tcb.bces.event.impl;
 import tcb.bces.event.IEventCancellable;
 
 /**
- * A basic implementation of {@link IEventCancellable}.
+ * An abstract cancellable event class that implements {@link IEventCancellable}.
  * 
  * @author TCB
  *

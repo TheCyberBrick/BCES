@@ -49,11 +49,11 @@ import tcb.bces.listener.filter.IFilter;
  * @author TCB
  *
  */
-public class EventBus implements IBus {
+public class EventBus implements IEventBus {
 	/**
 	 * Holds the compiled method and an array of the registered listeners
 	 */
-	private static final class MethodPool {
+	private static final class MethodStubImpl implements IMethodStub {
 		/**
 		 * Array of all registered listeners. Used in the compiled postEventInternal method.
 		 */
@@ -66,7 +66,7 @@ public class EventBus implements IBus {
 		@SuppressWarnings("unused")
 		private final IFilter[] filterArray;
 
-		public MethodPool(IListener[] listenerArray, IFilter[] filterArray) {
+		public MethodStubImpl(IListener[] listenerArray, IFilter[] filterArray) {
 			this.listenerArray = listenerArray;
 			this.filterArray = filterArray;
 		}
@@ -76,8 +76,8 @@ public class EventBus implements IBus {
 		 * @param event IEvent
 		 * @return IEvent
 		 */
-		@SuppressWarnings("unused")
-		private final IEvent postEventInternal(IEvent event) {
+		@Override
+		public final IEvent postEventInternal(IEvent event) {
 			return event;
 		}
 
@@ -86,19 +86,20 @@ public class EventBus implements IBus {
 		 * @param event IEventCancellable
 		 * @return IEvent
 		 */
-		@SuppressWarnings("unused")
-		private final IEvent postEventInternalCancellable(IEventCancellable event) {
+		@Override
+		public final IEvent postEventInternalCancellable(IEventCancellable event) {
 			return event;
 		}
 
 		/**
-		 * Returns a new instance of EventBus and passes the listener array to the new instance.
+		 * Returns a new instance of EventBus and passes the listener array to the new instance. Accessed via reflection
+		 * from the EventBus.
 		 * @param listenerArray Listener[]
 		 * @return EventBus
 		 */
 		@SuppressWarnings("unused")
-		private final static MethodPool getNewInstance(IListener[] listenerArray, IFilter[] filterArray) {
-			return new MethodPool(listenerArray, filterArray);
+		private final static MethodStubImpl getNewInstance(IListener[] listenerArray, IFilter[] filterArray) {
+			return new MethodStubImpl(listenerArray, filterArray);
 		}
 	}
 
@@ -146,7 +147,8 @@ public class EventBus implements IBus {
 	}
 
 	/**
-	 * Holds the data of a verified method entry
+	 * The {@link MethodEntry} holds information about a registered listener
+	 * and it's listening {@link Method}.
 	 */
 	public static final class MethodEntry {
 		private final Class<? extends IEvent> eventClass;
@@ -154,35 +156,70 @@ public class EventBus implements IBus {
 		private final Method method;
 		private final Subscribe handlerAnnotation;
 		private IFilter filter;
+
+		/**
+		 * The {@link MethodEntry} holds information about a registered listener
+		 * and it's listening {@link Method}.
+		 * @param eventClass {@link Class}
+		 * @param listener {@link IListener}
+		 * @param method {@link Method}
+		 * @param handlerAnnotation {@link Subscribe}
+		 */
 		private MethodEntry(Class<? extends IEvent> eventClass, IListener listener, Method method, Subscribe handlerAnnotation) {
 			this.eventClass = eventClass;
 			this.listener = listener;
 			this.method = method;
 			this.handlerAnnotation = handlerAnnotation;
 		}
+
+		/**
+		 * Returns the event type of this {@link MethodEntry}.
+		 * @return {@link IEvent}
+		 */
 		public Class<? extends IEvent> getEventClass() {
 			return this.eventClass;
 		}
+
+		/**
+		 * Returns the {@link IListener} instance.
+		 * @return {@link IListener}
+		 */
 		public IListener getListener() {
 			return this.listener;
 		}
+
+		/**
+		 * Returns the {@link Method} this {@link MethodEntry} belongs to.
+		 * @return {@link Method}
+		 */
 		public Method getMethod() {
 			return this.method;
 		}
+
+		/**
+		 * Returns the {@link Subscribe} annotation that belongs to this
+		 * {@link MethodEntry}.
+		 * @return {@link Subscribe}
+		 */
 		public Subscribe getHandlerAnnotation() {
 			return this.handlerAnnotation;
 		}
+
+		/**
+		 * Returns the {@link IFilter} that has been assigned to this {@link MethodEntry}.
+		 * @return {@link IFilter}
+		 */
 		public IFilter getFilter() {
 			return this.filter;
 		}
-		
+
 		/**
 		 * This method can be used to set custom filters. If this method is used instead
 		 * of the {@link Subscribe#filter()} method, a custom constructor
 		 * can be used. The method {@link IFilter#init(IListener)} will not be called if
 		 * this method is used.
-		 * @param filter IFilter
-		 * @return MethodEntry
+		 * @param filter {@link IFilter}
+		 * @return {@link MethodEntry}
 		 */
 		public MethodEntry setFilter(IFilter filter) {
 			this.filter = filter;
@@ -198,11 +235,11 @@ public class EventBus implements IBus {
 	/**
 	 * Holds the method names used for reflection and bytecode construction
 	 */
-	private static final String METHODPOOL_CREATE_NEW_INSTANCE = "getNewInstance";
-	private static final String METHODPOOL_POST_EVENT_INTERNAL = "postEventInternal";
-	private static final String METHODPOOL_POST_EVENT_INTERNAL_CANCELLABLE = "postEventInternalCancellable";
-	private static final String METHODPOOL_LISTENER_ARRAY = "listenerArray";
-	private static final String METHODPOOL_FILTER_ARRAY = "filterArray";
+	private static final String METHODSTUB_CREATE_NEW_INSTANCE = "getNewInstance";
+	private static final String METHODSTUB_POST_EVENT_INTERNAL = "postEventInternal";
+	private static final String METHODSTUB_POST_EVENT_INTERNAL_CANCELLABLE = "postEventInternalCancellable";
+	private static final String METHODSTUB_LISTENER_ARRAY = "listenerArray";
+	private static final String METHODSTUB_FILTER_ARRAY = "filterArray";
 	private static final String IFILTER_FILTER = "filter";
 	private static final String IFILTER_INIT = "init";
 	private static final String ILISTENER_ISENABLED = "isEnabled";
@@ -234,34 +271,9 @@ public class EventBus implements IBus {
 	private IFilter[] filterArray;
 
 	/**
-	 * Holds the instance of the recompiled EventBus
+	 * Holds the instance of the recompiled {@link MethodStubImpl}
 	 */
-	private Object implInstance = null;
-
-	/**
-	 * Holds the EVENTBUS_POST_EVENT_INTERNAL method
-	 */
-	private Method postEventInternalMethod = null;
-
-	/**
-	 * Holds the EVENTBUS_POST_EVENT_INTERNAL_CANCELLABLE method
-	 */
-	private Method postEventInternalMethodCancellable = null;
-
-	/**
-	 * Holds the class at the time where the EVENTBUS_POST_EVENT_INTERNAL method has been compiled
-	 */
-	private Class<?> postEventInternalMethodClass = null;
-
-	/**
-	 * True if the MethodPool has been recompiled but the method invoker not
-	 */
-	private boolean methodOutdated = false;
-
-	/**
-	 * True if the MethodPool has been recompiled but the method invoker not
-	 */
-	private boolean methodOutdatedCancellable = false;
+	private IMethodStub stubImplInstance = null;
 
 	/**
 	 * Holds the amount of registered MethodEntries
@@ -280,8 +292,8 @@ public class EventBus implements IBus {
 	 * are registered an IndexOutOfBoundsException is thrown.
 	 * A SubscriptionException is thrown if an invalid method has been found.
 	 * Returns a read-only list of all found valid method entries.
-	 * @param listener IListener
-	 * @return List<MethodEntry> read-only
+	 * @param listener {@link IListener}
+	 * @return {@link List} read-only
 	 */
 	public final List<MethodEntry> addListener(IListener listener) throws SubscriptionException, IndexOutOfBoundsException {
 		List<MethodEntry> entryList = EventBus.analyzeListener(listener);
@@ -310,9 +322,9 @@ public class EventBus implements IBus {
 	/**
 	 * Verifies the specified listener and returns a list of all found valid method entries.
 	 * A SubscriptionException is thrown if an invalid method has been found.
-	 * @param listener IListener
-	 * @return List<MethodEntry>
-	 * @throws SubscriptionException
+	 * @param listener {@link IListener}
+	 * @return {@link List}
+	 * @throws {@link SubscriptionException}
 	 */
 	public static final List<MethodEntry> analyzeListener(IListener listener) throws SubscriptionException {
 		List<MethodEntry> entryList = new ArrayList<MethodEntry>();
@@ -340,9 +352,9 @@ public class EventBus implements IBus {
 	}
 
 	/**
-	 * Adds a single method entry to the EventBus. EventBus has to be updated with {@link EventBus#update()} for the new listener to take effect.
-	 * The default EventBus has a limit of {@link EventBus#MAX_METHODS} method entries. If more than {@link EventBus#MAX_METHODS} method entries are registered an IndexOutOfBoundsException is thrown.
-	 * @param entry MethodEntry
+	 * Adds a single {@link MethodEntry} to the {@link EventBus}. The {@link EventBus} has to be updated with {@link EventBus#update()} for the new {@link IListener} to take effect.
+	 * The default {@link EventBus} has a limit of {@link EventBus#MAX_METHODS} method entries. If more than {@link EventBus#MAX_METHODS} method entries are registered an {@link IndexOutOfBoundsException} is thrown.
+	 * @param entry {@link MethodEntry}
 	 */
 	public final void addMethodEntry(MethodEntry entry) throws IndexOutOfBoundsException {
 		if(this.methodCount > MAX_METHODS) {
@@ -360,10 +372,10 @@ public class EventBus implements IBus {
 		this.methodCount++;
 		this.updateArray();
 	}
-	
+
 	/**
 	 * Returns a read-only list of all registered method entries.
-	 * @return List<MethodEntry>
+	 * @return {@link List}
 	 */
 	public final List<MethodEntry> getMethodEntries() {
 		List<MethodEntry> result = new ArrayList<MethodEntry>();
@@ -376,8 +388,8 @@ public class EventBus implements IBus {
 	}
 
 	/**
-	 * Removes a listener from the bus. The bus has to be updated with {@link EventBus#update()} for this to take effect.
-	 * @param listener IListener
+	 * Removes a {@link IListener} from the {@link EventBus}. The {@link EventBus} has to be updated with {@link EventBus#update()} for this to take effect.
+	 * @param listener {@link IListener}
 	 */
 	public final void removeListener(IListener listener) {
 		Method[] listenerMethods = listener.getClass().getDeclaredMethods();
@@ -427,8 +439,8 @@ public class EventBus implements IBus {
 	}
 
 	/**
-	 * Removes a method entry from the EventBus. EventBus has to be updated with {@link EventBus#update()} for this to take effect.
-	 * @param methodEntry MethodEntry
+	 * Removes a {@link MethodEntry} from the {@link EventBus}. The {@link EventBus} has to be updated with {@link EventBus#update()} for this to take effect.
+	 * @param methodEntry {@link MethodEntry}
 	 */
 	public final void removeMethodEntry(MethodEntry methodEntry) {
 		List<ListenerMethodEntry> lle = this.registeredEntries.get(methodEntry.getEventClass());
@@ -455,13 +467,13 @@ public class EventBus implements IBus {
 	}
 
 	/**
-	 * This method sets the filter of the method entry that was specified
+	 * This method sets the {@link IFilter} of the {@link MethodEntry} that was specified
 	 * with {@link Subscribe#filter()}.
-	 * Throws a SubscriptionException if the filter class is abstract or interface
-	 * or has no no-arg constructor.
-	 * @param entry MethodEntry
-	 * @return MethodEntry
-	 * @throws SubscriptionException
+	 * Throws a {@link SubscriptionException} if the filter class is abstract or interface
+	 * or doesn't have a no-arg constructor.
+	 * @param entry {@link MethodEntry}
+	 * @return {@link MethodEntry}
+	 * @throws {@link SubscriptionException}
 	 */
 	private static final MethodEntry initFilter(MethodEntry entry) throws SubscriptionException {
 		if(entry.getFilter() != null) {
@@ -496,7 +508,7 @@ public class EventBus implements IBus {
 	}
 
 	/**
-	 * Removes all registered listeners from the EventBus.
+	 * Removes all registered listeners from this {@link EventBus}.
 	 */
 	public final void clear() {
 		this.registeredEntries.clear();
@@ -507,7 +519,7 @@ public class EventBus implements IBus {
 
 	/**
 	 * Returns a read-only list of all registered listeners.
-	 * @return List<Listener> read-only
+	 * @return {@link List} read-only
 	 */
 	public final List<IListener> getListeners() {
 		ArrayList<IListener> listeners = new ArrayList<IListener>();
@@ -543,21 +555,21 @@ public class EventBus implements IBus {
 	}
 
 	/**
-	 * Returns the recompiled version of EventBus that can handle events and listeners.
-	 * @return Object (Recompiled EventBus)
+	 * Returns the recompiled version of {@link MethodStubImpl}
+	 * @return {@link IMethodStub}
 	 */
-	private final Object getCompiledInstance() {
-		if(this.implInstance == null)  {
-			this.implInstance = this.createBus();
+	private final IMethodStub getCompiledStub() {
+		if(this.stubImplInstance == null)  {
+			this.stubImplInstance = (IMethodStub)this.compileStub();
 		}
-		return this.implInstance;
+		return this.stubImplInstance;
 	}
 
 	/**
-	 * Creates a new EventBus with the compiled event distribution method.
-	 * @return Object (Recompiled EventBus)
+	 * Recompiles {@link MethodStubImpl} with all registered listeners.
+	 * @return {@link IMethodStub}
 	 */
-	private final Object createBus() {
+	private final IMethodStub compileStub() {
 		try {
 			Comparator<ListenerMethodEntry> prioritySorter = new Comparator<ListenerMethodEntry>() {
 				@Override
@@ -572,9 +584,9 @@ public class EventBus implements IBus {
 				@SuppressWarnings("unchecked")
 				@Override
 				protected Class<?> loadClass(String paramString, boolean paramBoolean) throws ClassNotFoundException {
-					if(paramString.equals(MethodPool.class.getName())) {
+					if(paramString.equals(MethodStubImpl.class.getName())) {
 						try {
-							InputStream is = MethodPool.class.getResourceAsStream("/" + paramString.replace('.', '/') + ".class");
+							InputStream is = MethodStubImpl.class.getResourceAsStream("/" + paramString.replace('.', '/') + ".class");
 							ByteArrayOutputStream baos = new ByteArrayOutputStream();
 							int readBytes = 0;
 							byte[] buffer = new byte[1024];
@@ -586,10 +598,10 @@ public class EventBus implements IBus {
 							ClassNode classNode = new ClassNode();
 							classReader.accept(classNode, ClassReader.SKIP_FRAMES);
 							for(MethodNode methodNode : (List<MethodNode>) classNode.methods) {
-								if(methodNode.name.equals(METHODPOOL_POST_EVENT_INTERNAL)) {
+								if(methodNode.name.equals(METHODSTUB_POST_EVENT_INTERNAL)) {
 									instrumentDistributorMethod(methodNode, false);
 								}
-								if(methodNode.name.equals(METHODPOOL_POST_EVENT_INTERNAL_CANCELLABLE)) {
+								if(methodNode.name.equals(METHODSTUB_POST_EVENT_INTERNAL_CANCELLABLE)) {
 									instrumentDistributorMethod(methodNode, true);
 								}
 							}
@@ -604,12 +616,12 @@ public class EventBus implements IBus {
 					return super.loadClass(paramString, paramBoolean);
 				}
 			};
-			Class<?> dispatcherClass = customClassLoader.loadClass(MethodPool.class.getName());
-			Method instanceMethod = dispatcherClass.getDeclaredMethod(METHODPOOL_CREATE_NEW_INSTANCE, new Class[]{IListener[].class, IFilter[].class});
+			Class<?> dispatcherClass = customClassLoader.loadClass(MethodStubImpl.class.getName());
+			Method instanceMethod = dispatcherClass.getDeclaredMethod(METHODSTUB_CREATE_NEW_INSTANCE, new Class[]{IListener[].class, IFilter[].class});
 			instanceMethod.setAccessible(true);
 			Object distributorInstance = instanceMethod.invoke(null, new Object[]{this.listenerArray, this.filterArray});
 			instanceMethod.setAccessible(false);
-			return distributorInstance;
+			return (IMethodStub) distributorInstance;
 		} catch(Exception ex) {
 			this.onException(ex);
 		}
@@ -618,7 +630,7 @@ public class EventBus implements IBus {
 
 	/**
 	 * Modifies the internal event distribution method.
-	 * @param methodNode MethodNode
+	 * @param methodNode {@link MethodNode}
 	 */
 	@SuppressWarnings("unchecked")
 	private final void instrumentDistributorMethod(MethodNode methodNode, boolean cancellable) {
@@ -680,7 +692,7 @@ public class EventBus implements IBus {
 
 					//Inside if body
 					for(ListenerMethodEntry listenerEntry : e.getValue()) {
-						String className = MethodPool.class.getName().replace(".", "/");
+						String className = MethodStubImpl.class.getName().replace(".", "/");
 						String fieldType = "[L" + IListener.class.getName().replace(".", "/") + ";";
 						String listenerClassName = listenerEntry.getInstance().getClass().getName().replace(".", "/");
 						String listenerMethodName = listenerEntry.getMethodName();
@@ -699,7 +711,7 @@ public class EventBus implements IBus {
 							//load instance of this class ('this' keyword)
 							instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
 							//get filter array
-							instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, METHODPOOL_FILTER_ARRAY, filterFieldType));
+							instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, METHODSTUB_FILTER_ARRAY, filterFieldType));
 							//push index onto stack
 							//some tiny bytecode optimization
 							if(filterIndex <= 5) {
@@ -767,7 +779,7 @@ public class EventBus implements IBus {
 							//load instance of this class ('this' keyword)
 							instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
 							//get listener array
-							instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, METHODPOOL_LISTENER_ARRAY, fieldType));
+							instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, METHODSTUB_LISTENER_ARRAY, fieldType));
 							//push index onto stack
 							//some tiny bytecode optimization
 							if(listenerIndex <= 5) {
@@ -812,7 +824,7 @@ public class EventBus implements IBus {
 						//load instance of this class ('this' keyword)
 						instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
 						//get listener array
-						instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, METHODPOOL_LISTENER_ARRAY, fieldType));
+						instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, METHODSTUB_LISTENER_ARRAY, fieldType));
 						//push index onto stack
 						//some tiny bytecode optimization
 						if(listenerIndex <= 5) {
@@ -875,38 +887,17 @@ public class EventBus implements IBus {
 	}
 
 	/**
-	 * Returns the EVENTBUS_POST_EVENT_INTERNAL or EVENTBUS_POST_EVENT_INTERNAL_CANCELLABLE method
-	 * @param cancellable True if the cancellable version should be returned, false for the normal version
-	 * @return Method
-	 * @throws SecurityException 
-	 * @throws NoSuchMethodException 
+	 * Posts an {@link IEvent} and returns the posted event. This method will not be interrupted if an event is cancelled.
+	 * This method should be used if performance is a big concern and cancellable events are not required.
+	 * @param event {@link IEvent}
+	 * @return {@link IEvent}
 	 */
-	private final Method updatePostEventInternalMethod(boolean cancellable) throws NoSuchMethodException, SecurityException {
-		if(!cancellable) {
-			if(this.postEventInternalMethod == null || this.methodOutdated) {
-				this.methodOutdated = false;
-				this.postEventInternalMethodClass = this.getCompiledInstance().getClass();
-				this.postEventInternalMethod = this.postEventInternalMethodClass.getDeclaredMethod(METHODPOOL_POST_EVENT_INTERNAL, new Class[] {IEvent.class});
-				this.postEventInternalMethod.setAccessible(true);
-			}
-			return this.postEventInternalMethod;
-		} else {
-			if(this.postEventInternalMethodCancellable == null || this.methodOutdatedCancellable) {
-				this.methodOutdatedCancellable = false;
-				this.postEventInternalMethodClass = this.getCompiledInstance().getClass();
-				this.postEventInternalMethodCancellable = this.postEventInternalMethodClass.getDeclaredMethod(METHODPOOL_POST_EVENT_INTERNAL_CANCELLABLE, new Class[] {IEventCancellable.class});
-				this.postEventInternalMethodCancellable.setAccessible(true);
-			}
-			return this.postEventInternalMethodCancellable;
-		}
-	}
-
 	@SuppressWarnings("unchecked")
 	@Override
 	public <T extends IEvent> T postEvent(T event) {
 		try {
 			if (!this.prePostEvent(event)) return event;
-			IEvent result = (IEvent)this.updatePostEventInternalMethod(false).invoke(this.getCompiledInstance(), new Object[] { event });
+			IEvent result = this.getCompiledStub().postEventInternal(event);
 			this.postPostEvent(event);
 			return (T) result;
 		} catch (Exception ex) {
@@ -917,12 +908,17 @@ public class EventBus implements IBus {
 		return event;
 	}
 
+	/**
+	 * Posts a cancellable {@link IEvent} and returns the posted event. This method will be interrupted if an event is cancelled.
+	 * @param event {@link IEventCancellable}
+	 * @return {@link IEventCancellable}
+	 */
 	@SuppressWarnings("unchecked")
 	@Override
 	public <T extends IEventCancellable> T postEventCancellable(T event) {
 		try {
 			if (!this.prePostEvent(event)) return event;
-			IEvent result = (IEvent)this.updatePostEventInternalMethod(true).invoke(this.getCompiledInstance(), new Object[] { event });
+			IEvent result = this.getCompiledStub().postEventInternalCancellable(event);
 			this.postPostEvent(event);
 			return (T) result;
 		} catch (Exception ex) {
@@ -939,27 +935,26 @@ public class EventBus implements IBus {
 	 * registered.
 	 */
 	public void update() {
-		this.methodOutdated = true;
-		this.methodOutdatedCancellable = true;
-		this.implInstance = this.createBus();
-		try {
-			this.updatePostEventInternalMethod(false);
-			this.updatePostEventInternalMethod(true);
-		} catch (Exception ex) {
-			this.onException(ex);
-		}
+		this.stubImplInstance = (IMethodStub)this.compileStub();
 	}
 
+	/**
+	 * Returns a new instance of this {@link EventBus} with the same
+	 * properties.
+	 * Used for {@link MultiEventBus} to create copies of
+	 * the specified bus.
+	 * @return {@link IEventBus}
+	 */
 	@Override
-	public IBus copyBus() {
+	public IEventBus copyBus() {
 		return new EventBus();
 	}
-	
+
 	////////////////////////// API Methods //////////////////////////
 	/**
 	 * Called when an event is about to get posted. Return true if event should be posted.
-	 * @param event Event
-	 * @return Boolean
+	 * @param event {@link IEvent}
+	 * @return boolean
 	 */
 	protected boolean prePostEvent(IEvent event) {
 		return true;
@@ -967,24 +962,24 @@ public class EventBus implements IBus {
 
 	/**
 	 * Called after an event has been posted.
-	 * @param event Event
+	 * @param event {@link IEvent}
 	 */
 	protected void postPostEvent(IEvent event) { }
 
 	/**
 	 * Called when the distributor method is being instrumented. Additional instructions can be added to the baseInstructions or directly
 	 * to the methodNode. Return false to cancel the method instrumentation.
-	 * @param baseInstructions ArrayList<AbstractInsnNode>
-	 * @param methodNode MethodNode
-	 * @return Boolean
+	 * @param baseInstructions {@link List}
+	 * @param methodNode {@link MethodNode}
+	 * @return boolean
 	 */
-	protected boolean instrumentDistributor(ArrayList<AbstractInsnNode> baseInstructions, MethodNode methodNode) {
+	protected boolean instrumentDistributor(List<AbstractInsnNode> baseInstructions, MethodNode methodNode) {
 		return true;
 	}
 
 	/**
-	 * Called when an exception inside the EventBus occurs.
-	 * @param ex Exception
+	 * Called when an exception inside the {@link EventBus} occurs.
+	 * @param ex {@link Exception}
 	 */
 	protected void onException(Exception ex) { }
 }

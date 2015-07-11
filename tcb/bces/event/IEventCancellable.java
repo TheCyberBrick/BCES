@@ -11,13 +11,13 @@ public interface IEventCancellable extends IEvent {
 	 * Sets event cancelled state to true
 	 */
 	void setCancelled();
-	
+
 	/**
 	 * Sets event cancelled state
 	 * @param cancelled Boolean
 	 */
 	void setCancelled(boolean cancelled);
-	
+
 	/**
 	 * Returns whether this event has been cancelled
 	 * @return Boolean

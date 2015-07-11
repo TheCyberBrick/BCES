@@ -21,7 +21,7 @@ import tcb.bces.listener.IListener;
  * @author TCB
  *
  */
-public class MultiEventBus<B extends EventBus> implements IBus {
+public class MultiEventBus<B extends EventBus> implements IEventBus {
 	private final ArrayList<IListener> registeredListeners = new ArrayList<IListener>();
 	private final ArrayList<B> busCollection = new ArrayList<B>();
 	private final HashMap<Class<? extends IEvent>, List<B>> busMap = new HashMap<Class<? extends IEvent>, List<B>>();
@@ -31,7 +31,7 @@ public class MultiEventBus<B extends EventBus> implements IBus {
 	private boolean singleBus = true;
 	private B busInstance;
 	private Class<B> busType;
-	
+
 	/**
 	 * Initializes a new {@link MultiEventBus} with a maximum method entry limit per bus of 100 method entries (recommended).
 	 */
@@ -66,7 +66,7 @@ public class MultiEventBus<B extends EventBus> implements IBus {
 	public Class<B> getBusType() {
 		return this.busType;
 	}
-	
+
 	/**
 	 * Adds a listener to the {@link MultiEventBus}. {@link MultiEventBus} has to be updated with {@link MultiEventBus#update()} 
 	 * for the new listener to take effect.
@@ -81,7 +81,7 @@ public class MultiEventBus<B extends EventBus> implements IBus {
 		this.registeredListeners.add(listener);
 		return Collections.unmodifiableList(entries);
 	}
-	
+
 	/**
 	 * Removes a listener from the {@link MultiEventBus}. {@link MultiEventBus} has to be updated with {@link MultiEventBus#update()} for this to take effect.
 	 * @param listener IListener
@@ -90,7 +90,7 @@ public class MultiEventBus<B extends EventBus> implements IBus {
 		this.cachedMethodEntries.remove(listener);
 		this.registeredListeners.remove(listener);
 	}
-	
+
 	/**
 	 * Updates the {@link MultiEventBus}. Required for new method entries to take effect.
 	 * @throws IndexOutOfBoundsException
@@ -140,7 +140,7 @@ public class MultiEventBus<B extends EventBus> implements IBus {
 			bus.update();
 		}
 	}
-	
+
 	/**
 	 * Returns the read-only bus map. List of {@link EventBus} sorted by event class.
 	 * @return read-only
@@ -148,7 +148,7 @@ public class MultiEventBus<B extends EventBus> implements IBus {
 	public final Map<Class<? extends IEvent>, List<B>> getBusMap() {
 		return Collections.unmodifiableMap(this.busMap);
 	}
-	
+
 	/**
 	 * Returns a list of all registered method entries grouped by event type.
 	 * @return List<List<MethodEntry>>
@@ -192,7 +192,7 @@ public class MultiEventBus<B extends EventBus> implements IBus {
 		if(index != 0) methodEntryList.add(currentList);
 		return methodEntryList;
 	}
-	
+
 	@Override
 	public final <T extends IEvent> T postEvent(T event) {
 		if(this.singleBus) {
@@ -208,7 +208,7 @@ public class MultiEventBus<B extends EventBus> implements IBus {
 		}
 		return event;
 	}
-	
+
 	@Override
 	public final <T extends IEventCancellable> T postEventCancellable(T event) {
 		if(this.singleBus) {
@@ -223,7 +223,7 @@ public class MultiEventBus<B extends EventBus> implements IBus {
 	}
 
 	@Override
-	public IBus copyBus() {
+	public IEventBus copyBus() {
 		return new MultiEventBus<B>(this.busInstance, this.maxMethodEntriesPerBus);
 	}
 }
