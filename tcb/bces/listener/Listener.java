@@ -1,6 +1,5 @@
-package tcb.bces.listener.impl;
+package tcb.bces.listener;
 
-import tcb.bces.listener.IListener;
 
 /**
  * An abstract listener class that implements {@link IListener}.

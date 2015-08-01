@@ -1,7 +1,7 @@
 package tcb.bces.listener.filter;
 
-import tcb.bces.EventBus.MethodEntry;
-import tcb.bces.event.IEvent;
+import tcb.bces.bus.EventBus.MethodEntry;
+import tcb.bces.event.Event;
 import tcb.bces.listener.Subscribe;
 
 /**
@@ -21,14 +21,14 @@ public interface IFilter {
 	public void init(MethodEntry entry);
 
 	/**
-	 * This method filters the incoming {@link IEvent}.
+	 * This method filters the incoming {@link Event}.
 	 * Return false to cancel the event for the specific
 	 * listening method this filter belongs to. 
 	 * This does not cancel the event itself, it just prevents
 	 * the event from being received by the listening method
 	 * this filter belongs to.
-	 * @param event {@link IEvent}
+	 * @param event {@link Event}
 	 * @return boolean
 	 */
-	public boolean filter(IEvent event);
+	public boolean filter(Event event);
 }

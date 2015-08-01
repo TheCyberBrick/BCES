@@ -1,7 +1,6 @@
-package tcb.bces.async.feedback.impl;
+package tcb.bces.bus.async.feedback;
 
-import tcb.bces.async.feedback.IFeedbackHandler;
-import tcb.bces.event.IEvent;
+import tcb.bces.event.Event;
 
 /**
  * An abstract feedback handler class that implements {@link IFeedbackHandler}.
@@ -11,5 +10,5 @@ import tcb.bces.event.IEvent;
  */
 public abstract class FeedbackHandler implements IFeedbackHandler {
 	@Override
-	public abstract void handleFeedback(IEvent event);
+	public abstract void handleFeedback(Event event);
 }

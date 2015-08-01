@@ -1,4 +1,4 @@
-package tcb.bces.async;
+package tcb.bces.bus.async;
 
 import java.lang.Thread.State;
 import java.util.ArrayList;
@@ -8,17 +8,17 @@ import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingDeque;
 
-import tcb.bces.EventBus;
-import tcb.bces.IEventBus;
-import tcb.bces.MultiEventBus;
-import tcb.bces.async.feedback.IFeedbackHandler;
-import tcb.bces.event.IEvent;
-import tcb.bces.event.IEventCancellable;
+import tcb.bces.bus.EventBus;
+import tcb.bces.bus.IEventBus;
+import tcb.bces.bus.MultiEventBus;
+import tcb.bces.bus.async.feedback.IFeedbackHandler;
+import tcb.bces.event.Event;
+import tcb.bces.event.EventCancellable;
 
 /**
  * This event bus allows asynchronous event posting. It still has all the features of
  * {@link EventBus}, but the events are dispatched asynchronously. Posting an event adds
- * it to a queue which is dispatched by the specified amount of dispatchers/threads.
+ * it to a queue which is dispatched by the specified amount of dispatcher threads.
  * The event post result can be retrieved by setting a custom {@link IFeedbackHandler}.
  * If {@link MultiEventBus} is used to wrap this bus, the feedback handler has to be set
  * before this bus is wrapped in order for it to work correctly.
@@ -29,11 +29,11 @@ import tcb.bces.event.IEventCancellable;
  *
  */
 public class AsyncEventBus extends EventBus {
-	protected final BlockingQueue<IEvent> eventQueue = new LinkedBlockingDeque<IEvent>();
-	protected final BlockingQueue<IEventCancellable> eventQueueCancellable = new LinkedBlockingDeque<IEventCancellable>();
+	protected final BlockingQueue<Event> eventQueue = new LinkedBlockingDeque<Event>();
+	protected final BlockingQueue<EventCancellable> eventQueueCancellable = new LinkedBlockingDeque<EventCancellable>();
 	protected IFeedbackHandler feedbackHandler = null;
-	private final ArrayList<Dispatcher> dispatchers = new ArrayList<Dispatcher>();
-	private final ArrayList<Dispatcher> sleepers = new ArrayList<Dispatcher>();
+	private final ArrayList<DispatcherThread> dispatchers = new ArrayList<DispatcherThread>();
+	private final ArrayList<DispatcherThread> sleepers = new ArrayList<DispatcherThread>();
 	private final int cthreads;
 	private final boolean manualDispatcherManagement;
 	protected final Object eventLock = new Object();
@@ -43,7 +43,7 @@ public class AsyncEventBus extends EventBus {
 	 * The default asynchronous event bus has a limit of {@link EventBus#MAX_METHODS} listening methods. 
 	 * If you want to add more listening methods use {@link EventBusManager} instead.
 	 * The amount of dispatchers/threads can be specified.
-	 * The dispatchers will go to sleep automatically after {@link Dispatcher#THREAD_SLEEP_DELAY} and
+	 * The dispatchers will go to sleep automatically after {@link DispatcherThread#THREAD_SLEEP_DELAY} and
 	 * they will be notified if an event is posted.
 	 * @param threads Integer
 	 */
@@ -51,7 +51,7 @@ public class AsyncEventBus extends EventBus {
 		this.cthreads = threads;
 		this.manualDispatcherManagement = false;
 		for(int i = 0; i < threads; i++) {
-			Dispatcher dispatcher = new Dispatcher(this, new EventBus());
+			DispatcherThread dispatcher = new DispatcherThread(this, new EventBus());
 			this.dispatchers.add(dispatcher);
 		}
 	}
@@ -69,7 +69,7 @@ public class AsyncEventBus extends EventBus {
 		this.cthreads = threads;
 		this.manualDispatcherManagement = manualDispatcherManagement;
 		for(int i = 0; i < threads; i++) {
-			Dispatcher dispatcher = new Dispatcher(this, new EventBus());
+			DispatcherThread dispatcher = new DispatcherThread(this, new EventBus());
 			this.dispatchers.add(dispatcher);
 		}
 	}
@@ -86,7 +86,7 @@ public class AsyncEventBus extends EventBus {
 		this.manualDispatcherManagement = manualDispatcherManagement;
 		this.feedbackHandler = feedbackHandler;
 		for(int i = 0; i < threads; i++) {
-			Dispatcher dispatcher = new Dispatcher(this, new EventBus());
+			DispatcherThread dispatcher = new DispatcherThread(this, new EventBus());
 			this.dispatchers.add(dispatcher);
 		}
 	}
@@ -121,27 +121,27 @@ public class AsyncEventBus extends EventBus {
 	 * Returns a read-only list of the current dispatchers.
 	 * @return List<Dispatcher> read-only
 	 */
-	public final List<Dispatcher> getDispatchers() {
+	public final List<DispatcherThread> getDispatchers() {
 		return Collections.unmodifiableList(this.dispatchers);
 	}
 
 	/**
-	 * Used in {@link Dispatcher}.
+	 * Used in {@link DispatcherThread}.
 	 * Adds a dispatcher to the sleeper list.
 	 * @param dispatcher Dispatcher
 	 */
-	protected final void addToSleepers(Dispatcher dispatcher) {
+	protected final void addToSleepers(DispatcherThread dispatcher) {
 		synchronized(this) {
 			this.sleepers.add(dispatcher);
 		}
 	}
 
 	/**
-	 * Used in {@link Dispatcher}.
+	 * Used in {@link DispatcherThread}.
 	 * Removes a dispatcher from the sleeper list.
 	 * @param dispatcher Dispatcher
 	 */
-	protected synchronized final void removeFromSleepers(Dispatcher dispatcher) {
+	protected synchronized final void removeFromSleepers(DispatcherThread dispatcher) {
 		synchronized(this) {
 			if(this.sleepers.contains(dispatcher)) {
 				this.sleepers.remove(dispatcher);
@@ -150,20 +150,20 @@ public class AsyncEventBus extends EventBus {
 	}
 
 	/**
-	 * Used in {@link Dispatcher}.
+	 * Used in {@link DispatcherThread}.
 	 * Returns the read-only event queue.
 	 * @return Collection<IEvent> read-only
 	 */
-	public final Collection<IEvent> getEventQueue() {
+	public final Collection<Event> getEventQueue() {
 		return Collections.unmodifiableCollection(this.eventQueue);
 	}
 
 	/**
-	 * Used in {@link Dispatcher}.
+	 * Used in {@link DispatcherThread}.
 	 * Returns the read-only cancellable event queue.
 	 * @return Collection<IEventCancellable> read-only
 	 */
-	public final Collection<IEventCancellable> getEventQueueCancellable() {
+	public final Collection<EventCancellable> getEventQueueCancellable() {
 		return Collections.unmodifiableCollection(this.eventQueueCancellable);
 	}
 
@@ -182,26 +182,11 @@ public class AsyncEventBus extends EventBus {
 	}
 
 	@Override
-	public <T extends IEvent> T postEvent(T event) {
+	public <T extends Event> T post(T event) {
 		try {
 			this.eventQueue.put(event);
 			if(!this.manualDispatcherManagement && this.sleepers.size() > 0) {
-				for(Dispatcher dispatcher : this.sleepers) {
-					dispatcher.setSleeping(false);
-				}
-			}
-		} catch (InterruptedException e) {
-			e.printStackTrace();
-		}
-		return event;
-	}
-
-	@Override
-	public <T extends IEventCancellable> T postEventCancellable(T event) {
-		try {
-			this.eventQueueCancellable.put(event);
-			if(!this.manualDispatcherManagement && this.sleepers.size() > 0) {
-				for(Dispatcher dispatcher : this.sleepers) {
+				for(DispatcherThread dispatcher : this.sleepers) {
 					dispatcher.setSleeping(false);
 				}
 			}
@@ -212,21 +197,12 @@ public class AsyncEventBus extends EventBus {
 	}
 
 	/**
-	 * Only used internally in {@link Dispatcher}
+	 * Only used internally in {@link DispatcherThread}
 	 * @param event
 	 * @return
 	 */
-	protected final <T extends IEvent> T postEventS(T event) {
-		return super.postEvent(event);
-	}
-
-	/**
-	 * Only used internally in {@link Dispatcher}
-	 * @param event
-	 * @return
-	 */
-	protected final <T extends IEventCancellable> T postEventCancellableS(T event) {
-		return super.postEventCancellable(event);
+	protected final <T extends Event> T postEventS(T event) {
+		return super.post(event);
 	}
 
 	/**
@@ -235,14 +211,14 @@ public class AsyncEventBus extends EventBus {
 	 */
 	public final void startDispatchers() {
 		try {
-			for(Dispatcher dispatcher : this.dispatchers) {
+			for(DispatcherThread dispatcher : this.dispatchers) {
 				if(!dispatcher.isRunning() && dispatcher.getState() != State.TERMINATED) {
 					dispatcher.startDispatcher();
 				}
 			}
 			int threadsLeft = this.cthreads - this.dispatchers.size();
 			for(int i = 0; i < threadsLeft; i++) {
-				Dispatcher dispatcher = new Dispatcher(this, new EventBus());
+				DispatcherThread dispatcher = new DispatcherThread(this, new EventBus());
 				dispatcher.startDispatcher();
 				this.dispatchers.add(dispatcher);
 			}
@@ -257,7 +233,7 @@ public class AsyncEventBus extends EventBus {
 	public final void stopDispatchers() {
 		try {
 			synchronized(this) {
-				for(Dispatcher dispatcher : this.dispatchers) {
+				for(DispatcherThread dispatcher : this.dispatchers) {
 					dispatcher.stopDispatcher();
 				}
 				this.dispatchers.clear();
@@ -269,13 +245,13 @@ public class AsyncEventBus extends EventBus {
 	}
 
 	@Override
-	public void update() {
-		for(Dispatcher dispatcher : this.dispatchers) {
+	public void bind() {
+		for(DispatcherThread dispatcher : this.dispatchers) {
 			dispatcher.getDispatcherBus().clear();
 			for(MethodEntry me : this.getMethodEntries()) {
-				dispatcher.getDispatcherBus().addMethodEntry(me);
+				dispatcher.getDispatcherBus().register(me);
 			}
-			dispatcher.getDispatcherBus().update();
+			dispatcher.getDispatcherBus().bind();
 		}
 	}
 

@@ -5,7 +5,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-import tcb.bces.EventBus;
+import tcb.bces.bus.EventBus;
 import tcb.bces.listener.filter.IFilter;
 
 /**

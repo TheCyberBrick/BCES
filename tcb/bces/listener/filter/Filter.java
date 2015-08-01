@@ -1,9 +1,8 @@
-package tcb.bces.listener.filter.impl;
+package tcb.bces.listener.filter;
 
-import tcb.bces.EventBus.MethodEntry;
-import tcb.bces.event.IEvent;
+import tcb.bces.bus.EventBus.MethodEntry;
+import tcb.bces.event.Event;
 import tcb.bces.listener.Subscribe;
-import tcb.bces.listener.filter.IFilter;
 
 /**
  * An abstract filter class that implements {@link IFilter}.
@@ -42,5 +41,5 @@ public abstract class Filter implements IFilter {
 	}
 
 	@Override
-	public abstract boolean filter(IEvent event);
+	public abstract boolean filter(Event event);
 }
