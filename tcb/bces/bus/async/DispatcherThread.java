@@ -1,20 +1,20 @@
 package tcb.bces.bus.async;
 
-import tcb.bces.bus.EventBus;
+import tcb.bces.bus.DRCEventBus;
 import tcb.bces.event.Event;
 
 /**
- * This dispatcher thread dispatches the events of a {@link AsyncEventBus}.
+ * This dispatcher thread dispatches the events of a {@link DRCAsyncEventBus}.
  * The dispatcher thread automatically goes to sleep after {@link DispatcherThread#THREAD_SLEEP_DELAY}
- * if no event has been posted through the {@link AsyncEventBus} if management was not set
+ * if no event has been posted through the {@link DRCAsyncEventBus} if management was not set
  * to manual.
  * 
  * @author TCB
  *
  */
 public class DispatcherThread extends Thread {
-	private final EventBus dispatcherBus;
-	private final AsyncEventBus bus;
+	private final DRCEventBus dispatcherBus;
+	private final DRCAsyncEventBus bus;
 	private boolean runDispatcher = true;
 	private boolean sleeping = false;
 	private long startTime;
@@ -29,7 +29,7 @@ public class DispatcherThread extends Thread {
 	 * @param bus AsyncEventBus
 	 * @param dispatcherBus EventBus
 	 */
-	protected DispatcherThread(AsyncEventBus bus, EventBus dispatcherBus) {
+	protected DispatcherThread(DRCAsyncEventBus bus, DRCEventBus dispatcherBus) {
 		this.bus = bus;
 		this.dispatcherBus = dispatcherBus;
 	}
@@ -38,7 +38,7 @@ public class DispatcherThread extends Thread {
 	 * Returns the dispatcher bus for this dispatcher.
 	 * @return EventBus
 	 */
-	protected final EventBus getDispatcherBus() {
+	protected final DRCEventBus getDispatcherBus() {
 		return this.dispatcherBus;
 	}
 

@@ -8,49 +8,49 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
-import tcb.bces.bus.EventBus.MethodEntry;
+import tcb.bces.bus.DRCEventBus.MethodEntry;
 import tcb.bces.bus.compilation.CompilationNode;
 import tcb.bces.event.Event;
 import tcb.bces.listener.IListener;
 import tcb.bces.listener.SubscriptionException;
 
 /**
- * This bus allows an infinite amount of registered methods
- * while still keeping all the functionality of {@link EventBus}.
- * Any properties of the wrapped bus have to be set before {@link MultiEventBus#bind()} is called.
+ * This bus expander can expand any limited event bus that extends {@link DRCEventBus} 
+ * and thus removes the listener limit while still keeping all the functionality of the limited bus.
+ * Any properties of the expanded bus have to be set before {@link DRCExpander#bind()} is called.
  * 
  * @author TCB
  *
  */
-public class MultiEventBus<B extends EventBus> implements IEventBus {
+public class DRCExpander<B extends DRCEventBus> implements IEventBus {
 	private final ArrayList<B> busCollection = new ArrayList<B>();
 	private final HashMap<Class<? extends Event>, List<B>> busMap = new HashMap<Class<? extends Event>, List<B>>();
 	private final List<MethodEntry> registeredMethodEntries = new ArrayList<MethodEntry>();
-	private EventBus currentBus = null;
+	private DRCEventBus currentBus = null;
 	private final int maxMethodEntriesPerBus;
 	private boolean singleBus = true;
 	private B busInstance;
 	private Class<B> busType;
 
 	/**
-	 * Initializes a new {@link MultiEventBus} with a maximum method entry limit per bus of 50 method entries (recommended).
+	 * Initializes a new {@link DRCExpander} with a maximum method entry limit per bus of 50 method entries (recommended).
 	 */
 	@SuppressWarnings("unchecked")
-	public MultiEventBus(B busInstance) {
+	public DRCExpander(B busInstance) {
 		this.maxMethodEntriesPerBus = 50;
 		this.busInstance = busInstance;
 		this.busType = (Class<B>) busInstance.getClass();
 	}
 
 	/**
-	 * Initializes a new {@link MultiEventBus} with a specified maximum method entry limit per bus.
-	 * Maximum limit of method entries per bus is {@link EventBus#MAX_METHODS}
+	 * Initializes a new {@link DRCExpander} with a specified maximum method entry limit per bus.
+	 * Maximum limit of method entries per bus is {@link DRCEventBus#MAX_METHODS}
 	 * @param maxMethodsPerBus Integer
 	 */
 	@SuppressWarnings("unchecked")
-	public MultiEventBus(B busInstance, int maxMethodsPerBus) {
-		if(maxMethodsPerBus > EventBus.MAX_METHODS) {
-			maxMethodsPerBus = EventBus.MAX_METHODS;
+	public DRCExpander(B busInstance, int maxMethodsPerBus) {
+		if(maxMethodsPerBus > DRCEventBus.MAX_METHODS) {
+			maxMethodsPerBus = DRCEventBus.MAX_METHODS;
 		} else if(maxMethodsPerBus < 1) {
 			maxMethodsPerBus = 1;
 		}
@@ -60,7 +60,7 @@ public class MultiEventBus<B extends EventBus> implements IEventBus {
 	}
 
 	/**
-	 * Returns the bus type this {@link MultiEventBus} uses.
+	 * Returns the bus type this {@link DRCExpander} uses.
 	 * @return
 	 */
 	public Class<B> getBusType() {
@@ -68,7 +68,7 @@ public class MultiEventBus<B extends EventBus> implements IEventBus {
 	}
 
 	/**
-	 * Registers a listener to the {@link EventBus}. The event bus has to be updated with {@link EventBus#bind()} for the new listener to take effect.
+	 * Registers a listener to the {@link DRCEventBus}. The event bus has to be updated with {@link DRCEventBus#bind()} for the new listener to take effect.
 	 * <p>
 	 * A {@link SubscriptionException} is thrown if an invalid method has been found.
 	 * @param listener {@link IListener} to register
@@ -76,13 +76,13 @@ public class MultiEventBus<B extends EventBus> implements IEventBus {
 	 * @return {@link List} read-only list of all found valid method entries
 	 */
 	public final List<MethodEntry> registerAndAnalyze(IListener listener) throws SubscriptionException {
-		List<MethodEntry> entries = EventBus.analyzeListener(listener);
+		List<MethodEntry> entries = DRCEventBus.analyzeListener(listener);
 		this.registeredMethodEntries.addAll(entries);
 		return Collections.unmodifiableList(entries);
 	}
 
 	/**
-	 * Registers a listener to the {@link EventBus}. The event bus has to be updated with {@link EventBus#bind()} for the new listener to take effect.
+	 * Registers a listener to the {@link DRCEventBus}. The event bus has to be updated with {@link DRCEventBus#bind()} for the new listener to take effect.
 	 * <p>
 	 * A {@link SubscriptionException} is thrown if an invalid method has been found.
 	 * @param listener {@link IListener} to register
@@ -94,7 +94,7 @@ public class MultiEventBus<B extends EventBus> implements IEventBus {
 	}
 
 	/**
-	 * Unregisters an {@link IListener} from the {@link MultiEventBus}. The event bus has to be updated with {@link MultiEventBus#bind()} for this to take effect.
+	 * Unregisters an {@link IListener} from the {@link DRCExpander}. The event bus has to be updated with {@link DRCExpander#bind()} for this to take effect.
 	 * @param listener {@link IListener} to unregister
 	 */
 	@Override
@@ -109,7 +109,7 @@ public class MultiEventBus<B extends EventBus> implements IEventBus {
 	}
 
 	/**
-	 * Registers a single {@link MethodEntry} to the {@link MultiEventBus}. The event bus has to be updated with {@link MultiEventBus#bind()} for the new {@link MethodEntry} to take effect.
+	 * Registers a single {@link MethodEntry} to the {@link DRCExpander}. The event bus has to be updated with {@link DRCExpander#bind()} for the new {@link MethodEntry} to take effect.
 	 * @param entry {@link MethodEntry} to register
 	 */
 	public final void register(MethodEntry entry) {
@@ -117,7 +117,7 @@ public class MultiEventBus<B extends EventBus> implements IEventBus {
 	}
 
 	/**
-	 * Unregisters a {@link MethodEntry} from the {@link MultiEventBus}. The event bus has to be updated with {@link MultiEventBus#bind()} for this to take effect.
+	 * Unregisters a {@link MethodEntry} from the {@link DRCExpander}. The event bus has to be updated with {@link DRCExpander#bind()} for this to take effect.
 	 * @param methodEntry {@link MethodEntry} to unregister
 	 */
 	public final void unregister(MethodEntry entry) {
@@ -225,15 +225,10 @@ public class MultiEventBus<B extends EventBus> implements IEventBus {
 			if(busList == null) {
 				return event;
 			}
-			for(EventBus bus : busList) {
+			for(DRCEventBus bus : busList) {
 				event = bus.post(event);
 			}
 		}
 		return event;
-	}
-
-	@Override
-	public IEventBus copyBus() {
-		return new MultiEventBus<B>(this.busInstance, this.maxMethodEntriesPerBus);
 	}
 }

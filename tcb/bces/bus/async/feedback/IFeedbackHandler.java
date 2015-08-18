@@ -1,11 +1,11 @@
 package tcb.bces.bus.async.feedback;
 
-import tcb.bces.bus.async.AsyncEventBus;
+import tcb.bces.bus.async.DRCAsyncEventBus;
 import tcb.bces.event.Event;
 
 /**
  * This feedback handler makes it possible to retrieve the result of an event post posted
- * by an {@link AsyncEventBus}.
+ * by an {@link DRCAsyncEventBus}.
  * 
  * @author TCB
  *
@@ -13,7 +13,7 @@ import tcb.bces.event.Event;
 public interface IFeedbackHandler {
 	/**
 	 * This method is called after an event has been posted asynchronously by
-	 * an {@link AsyncEventBus}.
+	 * an {@link DRCAsyncEventBus}.
 	 * @param event IEvent
 	 */
 	public void handleFeedback(Event event);

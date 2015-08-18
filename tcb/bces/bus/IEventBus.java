@@ -27,13 +27,4 @@ public interface IEventBus {
 	 * @return {@link Event} the posted event
 	 */
 	public <T extends Event> T post(T event);
-
-	/**
-	 * Returns a new instance of this {@link EventBus} with the same
-	 * properties.
-	 * Used in {@link MultiEventBus} to create copies of
-	 * the given bus.
-	 * @return {@link IEventBus}
-	 */
-	public IEventBus copyBus();
 }

@@ -1,6 +1,6 @@
 package tcb.bces.listener.filter;
 
-import tcb.bces.bus.EventBus.MethodEntry;
+import tcb.bces.bus.DRCEventBus.MethodEntry;
 import tcb.bces.event.Event;
 import tcb.bces.listener.Subscribe;
 

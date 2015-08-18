@@ -7,7 +7,7 @@ package tcb.bces.listener;
  * @author TCB
  *
  */
-public class Listener implements IListener {
+public abstract class Listener implements IListener {
 	/**
 	 * Returns whether this listener should receive events.
 	 * True by default.

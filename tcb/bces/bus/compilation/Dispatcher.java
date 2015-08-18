@@ -1,12 +1,12 @@
 package tcb.bces.bus.compilation;
 
-import tcb.bces.bus.EventBus;
+import tcb.bces.bus.DRCEventBus;
 import tcb.bces.event.Event;
 import tcb.bces.listener.IListener;
 import tcb.bces.listener.filter.IFilter;
 
 /**
- * This stub is used as a template to compile the dispatcher in {@link EventBus}.
+ * This stub is used as a template to compile the dispatcher in {@link DRCEventBus}.
  * Any class that extends this class must have a no-arg or default constructor
  * in order to work.
  * <p>
@@ -59,7 +59,7 @@ public abstract class Dispatcher {
 	 * A {@link DispatcherException} is thrown if used by any other method.
 	 * <p>
 	 * Implements the default dispatching code when
-	 * the dispatcher gets compiled by the {@link EventBus}.
+	 * the dispatcher gets compiled by the {@link DRCEventBus}.
 	 * This line of code will be replaced by the dispatching code
 	 * during the compilation. The dispatching code can only be implemented
 	 * once per method. If this method is used multiple times by a single method 

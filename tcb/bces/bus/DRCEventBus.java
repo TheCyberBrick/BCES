@@ -3,6 +3,7 @@ package tcb.bces.bus;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -42,8 +43,8 @@ import tcb.bces.listener.filter.IFilter;
 
 /**
  * This event bus should only be used for a low amount of listening methods. The 
- * maximum amount of possible listening methods is {@link EventBus#MAX_METHODS}. 
- * Use {@link MultiEventBus} for high amounts of listening methods.
+ * maximum amount of possible listening methods is {@link DRCEventBus#MAX_METHODS}. 
+ * Use {@link DRCExpander} for high amounts of listening methods.
  * <p>
  * This event bus supports listener priorities and an event filter.
  * The filter allows the user to filter and cancel any event before 
@@ -52,13 +53,13 @@ import tcb.bces.listener.filter.IFilter;
  * if the event is not a subclass of {@link EventCancellable}.
  * <p>
  * It is recommended to set a custom dispatcher to increase performace. More information
- * about custom dispatchers at {@link Dispatcher}, {@link EventBus#setDispatcher(Class)} and
+ * about custom dispatchers at {@link Dispatcher}, {@link DRCEventBus#setDispatcher(Class)} and
  * {@link Dispatcher#dispatch()}
  * 
  * @author TCB
  *
  */
-public class EventBus implements IEventBus {
+public class DRCEventBus implements IEventBus, ICopyable {
 	/**
 	 * The internal private dispatcher implementation
 	 */
@@ -204,6 +205,18 @@ public class EventBus implements IEventBus {
 			this.filter = filter;
 			return this;
 		}
+		
+		/**
+		 * Invokes the listening method by reflection if the filter test is passed.
+		 * @param event {@link Event}
+		 * @throws InvocationTargetException
+		 * @throws IllegalArgumentException
+		 * @throws IllegalAccessException
+		 */
+		public void invoke(Event event) throws IllegalAccessException, IllegalArgumentException, InvocationTargetException {
+			if(this.filter != null && !this.filter.filter(event)) return;
+			this.method.invoke(this.listener, event);
+		}
 	}
 
 	/**
@@ -269,25 +282,27 @@ public class EventBus implements IEventBus {
 	private CompilationNode compilationNode = new CompilationNode("Compilation");
 
 	/**
-	 * The default EventBus has a limit of {@link EventBus#MAX_METHODS} listening methods. 
-	 * If you want to add more listening methods use {@link MultiEventBus} instead.
-	 * More information at {@link EventBus}.
+	 * The default EventBus has a limit of {@link DRCEventBus#MAX_METHODS} listening methods. 
+	 * If you want to add more listening methods use {@link DRCExpander} instead.
+	 * More information at {@link DRCEventBus}.
 	 */
-	public EventBus() { }
+	public DRCEventBus() { }
 
 	/**
 	 * Private constructor for copy method
 	 */
-	private EventBus(Class<? extends Dispatcher> dispatcherClass, CompilationNode compilationNode) { 
+	private DRCEventBus(Class<? extends Dispatcher> dispatcherClass, CompilationNode compilationNode) { 
 		this.dispatcherClass = dispatcherClass;
 		this.compilationNode = compilationNode;
 	}
 
 	/**
-	 * Registers a listener to the {@link EventBus}. The event bus has to be updated with {@link EventBus#bind()} for the new listener to take effect.
+	 * Registers a listener to the {@link DRCEventBus}. The event bus has to be updated with {@link DRCEventBus#bind()} for the new listener to take effect.
 	 * <p>
-	 * The default EventBus has a limit of {@link EventBus#MAX_METHODS} listening methods. If more than {@link EventBus#MAX_METHODS} listening methods 
+	 * The default EventBus has a limit of {@link DRCEventBus#MAX_METHODS} listening methods. If more than {@link DRCEventBus#MAX_METHODS} listening methods 
 	 * are registered an IndexOutOfBoundsException is thrown.
+	 * <p>
+	 * Registering a listener that accepts subclasses of an event will ignore priority sorting.
 	 * <p>
 	 * A {@link SubscriptionException} is thrown if an invalid method has been found.
 	 * @param listener {@link IListener} to register
@@ -296,7 +311,7 @@ public class EventBus implements IEventBus {
 	 * @return {@link List} read-only list of all found valid method entries
 	 */
 	public final List<MethodEntry> registerAndAnalyze(IListener listener) throws SubscriptionException, IndexOutOfBoundsException {
-		List<MethodEntry> entryList = EventBus.analyzeListener(listener);
+		List<MethodEntry> entryList = DRCEventBus.analyzeListener(listener);
 		if(this.methodCount > MAX_METHODS) {
 			throw new IndexOutOfBoundsException("Too many registered methods. Max: " + MAX_METHODS);
 		} else if(this.methodCount + entryList.size() > MAX_METHODS) {
@@ -320,10 +335,12 @@ public class EventBus implements IEventBus {
 	}
 
 	/**
-	 * Registers a listener to the {@link EventBus}. The event bus has to be updated with {@link EventBus#bind()} for the new listener to take effect.
+	 * Registers a listener to the {@link DRCEventBus}. The event bus has to be updated with {@link DRCEventBus#bind()} for the new listener to take effect.
 	 * <p>
-	 * The default EventBus has a limit of {@link EventBus#MAX_METHODS} listening methods. If more than {@link EventBus#MAX_METHODS} listening methods 
+	 * The default EventBus has a limit of {@link DRCEventBus#MAX_METHODS} listening methods. If more than {@link DRCEventBus#MAX_METHODS} listening methods 
 	 * are registered an {@link IndexOutOfBoundsException} is thrown.
+	 * <p>
+	 * Registering a listener that accepts subclasses of an event will ignore priority sorting.
 	 * <p>
 	 * A {@link SubscriptionException} is thrown if an invalid method has been found.
 	 * @param listener {@link IListener} to register
@@ -364,16 +381,18 @@ public class EventBus implements IEventBus {
 				if(paramType.isInterface()) {
 					throw new SubscriptionException("Parameter for method cannot be an interface: " + listener.getClass().getName() + "#" + method.getName());
 				}
-				entryList.add(EventBus.initFilter(new MethodEntry(paramType, listener, method, handlerAnnotation)));
+				entryList.add(DRCEventBus.initFilter(new MethodEntry(paramType, listener, method, handlerAnnotation)));
 			}
 		}
 		return entryList;
 	}
 
 	/**
-	 * Registers a single {@link MethodEntry} to the {@link EventBus}. The event bus has to be updated with {@link EventBus#bind()} for the new {@link IListener} to take effect.
+	 * Registers a single {@link MethodEntry} to the {@link DRCEventBus}. The event bus has to be updated with {@link DRCEventBus#bind()} for the new {@link IListener} to take effect.
 	 * <p>
-	 * The default event bus has a limit of {@link EventBus#MAX_METHODS} method entries. If more than {@link EventBus#MAX_METHODS} method entries are registered an {@link IndexOutOfBoundsException} is thrown.
+	 * Registering a listener that accepts subclasses of an event will ignore priority sorting.
+	 * <p>
+	 * The default event bus has a limit of {@link DRCEventBus#MAX_METHODS} method entries. If more than {@link DRCEventBus#MAX_METHODS} method entries are registered an {@link IndexOutOfBoundsException} is thrown.
 	 * @param entry {@link MethodEntry} to register
 	 * @throws IndexOutOfBoundsException
 	 */
@@ -409,7 +428,7 @@ public class EventBus implements IEventBus {
 	}
 
 	/**
-	 * Unregisters an {@link IListener} from the {@link EventBus}. The event bus has to be updated with {@link EventBus#bind()} for this to take effect.
+	 * Unregisters an {@link IListener} from the {@link DRCEventBus}. The event bus has to be updated with {@link DRCEventBus#bind()} for this to take effect.
 	 * @param listener {@link IListener} to unregister
 	 */
 	@Override
@@ -461,7 +480,7 @@ public class EventBus implements IEventBus {
 	}
 
 	/**
-	 * Unregisters a {@link MethodEntry} from the {@link EventBus}. The event bus has to be updated with {@link EventBus#bind()} for this to take effect.
+	 * Unregisters a {@link MethodEntry} from the {@link DRCEventBus}. The event bus has to be updated with {@link DRCEventBus#bind()} for this to take effect.
 	 * @param methodEntry {@link MethodEntry} to unregister
 	 */
 	public final void unregister(MethodEntry methodEntry) {
@@ -531,7 +550,7 @@ public class EventBus implements IEventBus {
 	}
 
 	/**
-	 * Removes all registered listeners from this {@link EventBus}.
+	 * Removes all registered listeners from this {@link DRCEventBus}.
 	 */
 	public final void clear() {
 		this.registeredEntries.clear();
@@ -607,9 +626,9 @@ public class EventBus implements IEventBus {
 				@SuppressWarnings("unchecked")
 				@Override
 				protected Class<?> loadClass(String paramString, boolean paramBoolean) throws ClassNotFoundException {
-					if(paramString.equals(EventBus.this.dispatcherClass.getName())) {
+					if(paramString.equals(DRCEventBus.this.dispatcherClass.getName())) {
 						try {
-							InputStream is = EventBus.class.getResourceAsStream("/" + paramString.replace('.', '/') + ".class");
+							InputStream is = DRCEventBus.class.getResourceAsStream("/" + paramString.replace('.', '/') + ".class");
 							ByteArrayOutputStream baos = new ByteArrayOutputStream();
 							int readBytes = 0;
 							byte[] buffer = new byte[1024];
@@ -620,14 +639,14 @@ public class EventBus implements IEventBus {
 							ClassReader classReader = new ClassReader(bytecode);
 							ClassNode classNode = new ClassNode();
 							classReader.accept(classNode, ClassReader.SKIP_FRAMES);
-							CompilationNode mainNode = new CompilationNode(EventBus.this.toString());
-							EventBus.this.compilationNode.addChild(mainNode);
+							CompilationNode mainNode = new CompilationNode(DRCEventBus.this.toString());
+							DRCEventBus.this.compilationNode.addChild(mainNode);
 							for(MethodNode methodNode : (List<MethodNode>) classNode.methods) {
 								if(methodNode.name.equals(DISPATCHER_DISPATCH_EVENT_INTERNAL)) {
 									instrumentDispatcherMethod(methodNode, true, mainNode);
 								}
 							}
-							EventBus.this.compilationNode = mainNode;
+							DRCEventBus.this.compilationNode = mainNode;
 							ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
 							classNode.accept(classWriter);
 							bytecode = classWriter.toByteArray();
@@ -1053,11 +1072,11 @@ public class EventBus implements IEventBus {
 
 	/**
 	 * Sets the event dispatcher class.
-	 * Set to null to enable the internal dispatcher of {@link EventBus}.
+	 * Set to null to enable the internal dispatcher of {@link DRCEventBus}.
 	 * <p>
 	 * More information about custom dispatchers at {@link Dispatcher} and {@link Dispatcher#dispatch()}
 	 * <p>
-	 * The event bus has to be updated with {@link EventBus#bind()} for the new dispatcher to take effect.
+	 * The event bus has to be updated with {@link DRCEventBus#bind()} for the new dispatcher to take effect.
 	 * @param dispatcherClass {@link Dispatcher}
 	 * @throws DispatcherException
 	 */
@@ -1096,15 +1115,15 @@ public class EventBus implements IEventBus {
 	}
 
 	/**
-	 * Returns a new instance of this {@link EventBus} with the same
+	 * Returns a new instance of this {@link DRCEventBus} with the same
 	 * properties.
-	 * Used in {@link MultiEventBus} to create copies of
+	 * Used in {@link DRCExpander} to create copies of
 	 * the given bus.
 	 * @return {@link IEventBus}
 	 */
 	@Override
 	public IEventBus copyBus() {
-		return new EventBus(this.dispatcherClass, this.compilationNode);
+		return new DRCEventBus(this.dispatcherClass, this.compilationNode);
 	}
 
 	/**
@@ -1125,5 +1144,9 @@ public class EventBus implements IEventBus {
 	 */
 	protected boolean instrumentDispatcher(List<AbstractInsnNode> baseInstructions, MethodNode methodNode) {
 		return true;
+	}
+	
+	public static DRCExpander<DRCEventBus> createUnlimitedEventBus() {
+		return new DRCExpander<DRCEventBus>(new DRCEventBus());
 	}
 }

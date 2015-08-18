@@ -5,12 +5,12 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-import tcb.bces.bus.EventBus;
+import tcb.bces.bus.DRCEventBus;
 import tcb.bces.listener.filter.IFilter;
 
 /**
  * When used inside a class that implements {@link IListener}, the annotated method will be registered when the listener is
- * added to the EventBus using {@link EventBus#addListener(IListener)}
+ * added to the EventBus using {@link DRCEventBus#addListener(IListener)}
  * 
  * @author TCB
  *
@@ -19,8 +19,11 @@ import tcb.bces.listener.filter.IFilter;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface Subscribe {
 	/**
-	 * Set this to true if subclasses of the event should also be accepted.
-	 * Setting this to true disables priority sorting for this listener entry.
+	 * Set this to true if subclasses of the event should be accepted.
+	 * Enabling this feature can come with a limitation, for example
+	 * the loss of priority sorting. Such limitations are specific to 
+	 * the event bus implementation that's being used.
+	 * 
 	 * @return boolean
 	 */
 	boolean acceptSubclasses() default false;

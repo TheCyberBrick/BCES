@@ -8,19 +8,19 @@ import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingDeque;
 
-import tcb.bces.bus.EventBus;
+import tcb.bces.bus.DRCEventBus;
 import tcb.bces.bus.IEventBus;
-import tcb.bces.bus.MultiEventBus;
+import tcb.bces.bus.DRCExpander;
 import tcb.bces.bus.async.feedback.IFeedbackHandler;
 import tcb.bces.event.Event;
 import tcb.bces.event.EventCancellable;
 
 /**
  * This event bus allows asynchronous event posting. It still has all the features of
- * {@link EventBus}, but the events are dispatched asynchronously. Posting an event adds
+ * {@link DRCEventBus}, but the events are dispatched asynchronously. Posting an event adds
  * it to a queue which is dispatched by the specified amount of dispatcher threads.
  * The event post result can be retrieved by setting a custom {@link IFeedbackHandler}.
- * If {@link MultiEventBus} is used to wrap this bus, the feedback handler has to be set
+ * If {@link DRCExpander} is used to wrap this bus, the feedback handler has to be set
  * before this bus is wrapped in order for it to work correctly.
  * This event bus should be used when the listeners take a long time to process the received
  * events.
@@ -28,7 +28,7 @@ import tcb.bces.event.EventCancellable;
  * @author TCB
  *
  */
-public class AsyncEventBus extends EventBus {
+public class DRCAsyncEventBus extends DRCEventBus {
 	protected final BlockingQueue<Event> eventQueue = new LinkedBlockingDeque<Event>();
 	protected final BlockingQueue<EventCancellable> eventQueueCancellable = new LinkedBlockingDeque<EventCancellable>();
 	protected IFeedbackHandler feedbackHandler = null;
@@ -40,24 +40,24 @@ public class AsyncEventBus extends EventBus {
 	protected final Object eventCancellableLock = new Object();
 
 	/**
-	 * The default asynchronous event bus has a limit of {@link EventBus#MAX_METHODS} listening methods. 
+	 * The default asynchronous event bus has a limit of {@link DRCEventBus#MAX_METHODS} listening methods. 
 	 * If you want to add more listening methods use {@link EventBusManager} instead.
 	 * The amount of dispatchers/threads can be specified.
 	 * The dispatchers will go to sleep automatically after {@link DispatcherThread#THREAD_SLEEP_DELAY} and
 	 * they will be notified if an event is posted.
 	 * @param threads Integer
 	 */
-	public AsyncEventBus(int threads) {
+	public DRCAsyncEventBus(int threads) {
 		this.cthreads = threads;
 		this.manualDispatcherManagement = false;
 		for(int i = 0; i < threads; i++) {
-			DispatcherThread dispatcher = new DispatcherThread(this, new EventBus());
+			DispatcherThread dispatcher = new DispatcherThread(this, new DRCEventBus());
 			this.dispatchers.add(dispatcher);
 		}
 	}
 
 	/**
-	 * The default asynchronous event bus has a limit of {@link EventBus#MAX_METHODS} listening methods. 
+	 * The default asynchronous event bus has a limit of {@link DRCEventBus#MAX_METHODS} listening methods. 
 	 * If you want to add more listening methods use {@link EventBusManager} instead.
 	 * The amount of dispatchers/threads can be specified. The dispatchers can be managed
 	 * manually by setting manualDispatcherManagement to true. Dispatchers don't go to
@@ -65,11 +65,11 @@ public class AsyncEventBus extends EventBus {
 	 * @param threads Integer
 	 * @param manualDispatcherManagement Boolean
 	 */
-	public AsyncEventBus(int threads, boolean manualDispatcherManagement) {
+	public DRCAsyncEventBus(int threads, boolean manualDispatcherManagement) {
 		this.cthreads = threads;
 		this.manualDispatcherManagement = manualDispatcherManagement;
 		for(int i = 0; i < threads; i++) {
-			DispatcherThread dispatcher = new DispatcherThread(this, new EventBus());
+			DispatcherThread dispatcher = new DispatcherThread(this, new DRCEventBus());
 			this.dispatchers.add(dispatcher);
 		}
 	}
@@ -81,12 +81,12 @@ public class AsyncEventBus extends EventBus {
 	 * @param dispatchers ArrayList<Dispatcher>
 	 * @param sleepers ArrayList<Dispatcher>
 	 */
-	private AsyncEventBus(int threads, boolean manualDispatcherManagement, IFeedbackHandler feedbackHandler) {
+	private DRCAsyncEventBus(int threads, boolean manualDispatcherManagement, IFeedbackHandler feedbackHandler) {
 		this.cthreads = threads;
 		this.manualDispatcherManagement = manualDispatcherManagement;
 		this.feedbackHandler = feedbackHandler;
 		for(int i = 0; i < threads; i++) {
-			DispatcherThread dispatcher = new DispatcherThread(this, new EventBus());
+			DispatcherThread dispatcher = new DispatcherThread(this, new DRCEventBus());
 			this.dispatchers.add(dispatcher);
 		}
 	}
@@ -104,7 +104,7 @@ public class AsyncEventBus extends EventBus {
 	 * @param feedbackHandler IFeedbackHandler
 	 * @return AsyncEventBus
 	 */
-	public final AsyncEventBus setFeedbackHandler(IFeedbackHandler feedbackHandler) {
+	public final DRCAsyncEventBus setFeedbackHandler(IFeedbackHandler feedbackHandler) {
 		this.feedbackHandler = feedbackHandler;
 		return this;
 	}
@@ -218,7 +218,7 @@ public class AsyncEventBus extends EventBus {
 			}
 			int threadsLeft = this.cthreads - this.dispatchers.size();
 			for(int i = 0; i < threadsLeft; i++) {
-				DispatcherThread dispatcher = new DispatcherThread(this, new EventBus());
+				DispatcherThread dispatcher = new DispatcherThread(this, new DRCEventBus());
 				dispatcher.startDispatcher();
 				this.dispatchers.add(dispatcher);
 			}
@@ -257,6 +257,6 @@ public class AsyncEventBus extends EventBus {
 
 	@Override
 	public IEventBus copyBus() {
-		return new AsyncEventBus(this.cthreads, this.manualDispatcherManagement, this.feedbackHandler);
+		return new DRCAsyncEventBus(this.cthreads, this.manualDispatcherManagement, this.feedbackHandler);
 	}
 }
