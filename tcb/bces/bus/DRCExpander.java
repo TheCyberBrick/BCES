@@ -123,7 +123,7 @@ public class DRCExpander<B extends DRCEventBus> implements IEventBus {
 	public final void unregister(MethodEntry entry) {
 		this.registeredMethodEntries.remove(entry);
 	}
-	
+
 	/**
 	 * Compiles the internal event dispatcher and binds all registered listeners. Required for new method entries or dispatcher to take effect.
 	 * For optimal performance this method should be called after all listeners have been
@@ -131,6 +131,7 @@ public class DRCExpander<B extends DRCEventBus> implements IEventBus {
 	 */
 	public final void bind() {
 		this.busCollection.clear();
+		this.busMap.clear();
 		this.singleBus = true;
 		for(List<MethodEntry> mel : this.getSortedMethodEntries()) {
 			@SuppressWarnings("unchecked")
@@ -145,7 +146,7 @@ public class DRCExpander<B extends DRCEventBus> implements IEventBus {
 				}
 				if(!busList.contains(bus)) busList.add(bus);
 			}
-			this.busCollection.add(bus);
+			if(!this.busCollection.contains(bus)) this.busCollection.add(bus);
 		}
 		if(this.busCollection.size() > 0) {
 			for(B bus : this.busCollection) {
@@ -168,6 +169,14 @@ public class DRCExpander<B extends DRCEventBus> implements IEventBus {
 	 */
 	public final Map<Class<? extends Event>, List<B>> getBusMap() {
 		return Collections.unmodifiableMap(this.busMap);
+	}
+
+	/**
+	 * Returns the read-only bus list.
+	 * @return read-only bus list
+	 */
+	public final List<DRCEventBus> getBusList() {
+		return Collections.<DRCEventBus>unmodifiableList(this.busCollection);
 	}
 
 	/**
@@ -221,12 +230,16 @@ public class DRCExpander<B extends DRCEventBus> implements IEventBus {
 		if(this.singleBus) {
 			event = this.currentBus.post(event);
 		} else {
-			List<B> busList = this.busMap.get(event.getClass());
+			//TODO: Maybe find a solution that still works with the bus map
+			/*List<B> busList = this.busMap.get(event.getClass());
 			if(busList == null) {
 				return event;
 			}
 			for(DRCEventBus bus : busList) {
 				event = bus.post(event);
+			}*/
+			for(DRCEventBus bus : this.busCollection) {
+				bus.post(event);
 			}
 		}
 		return event;

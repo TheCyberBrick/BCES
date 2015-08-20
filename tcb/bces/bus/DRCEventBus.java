@@ -27,9 +27,11 @@ import org.objectweb.asm.tree.IntInsnNode;
 import org.objectweb.asm.tree.JumpInsnNode;
 import org.objectweb.asm.tree.LabelNode;
 import org.objectweb.asm.tree.LdcInsnNode;
+import org.objectweb.asm.tree.LocalVariableNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TypeInsnNode;
+import org.objectweb.asm.tree.VarInsnNode;
 
 import tcb.bces.bus.compilation.CompilationNode;
 import tcb.bces.bus.compilation.Dispatcher;
@@ -52,7 +54,8 @@ import tcb.bces.listener.filter.IFilter;
  * Filters work on any type of listener or event, even
  * if the event is not a subclass of {@link EventCancellable}.
  * <p>
- * It is recommended to set a custom dispatcher to increase performace. More information
+ * It is recommended to set a custom dispatcher to increase performance (for some reason
+ * custom dispatchers seems to work a little bit faster). More information
  * about custom dispatchers at {@link Dispatcher}, {@link DRCEventBus#setDispatcher(Class)} and
  * {@link Dispatcher#dispatch()}
  * 
@@ -86,9 +89,9 @@ public class DRCEventBus implements IEventBus, ICopyable {
 		private final boolean forced;
 		private final int priority;
 		private final IFilter filter;
-		private final boolean acceptSubclasses;
-		private Subscribe handlerAnnotation;
-		public InternalMethodEntry(IListener instance, Method method, Subscribe handlerAnnotation, IFilter filter) {
+		private final Subscribe handlerAnnotation;
+		private final Class<? extends Event> eventClass;
+		public InternalMethodEntry(IListener instance, Method method, Subscribe handlerAnnotation, IFilter filter, Class<? extends Event> eventClass) {
 			this.instance = instance;
 			this.method = method;
 			this.methodName = method.getName();
@@ -96,31 +99,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 			this.forced = handlerAnnotation.forced();
 			this.priority = handlerAnnotation.priority();
 			this.filter = filter;
-			this.acceptSubclasses = handlerAnnotation.acceptSubclasses();
-		}
-		private IListener getInstance() {
-			return this.instance;
-		}
-		private Method getMethod() {
-			return this.method;
-		}
-		private String getMethodName() {
-			return this.methodName;
-		}
-		private boolean isForced() {
-			return this.forced;
-		}
-		private int getPriority() {
-			return this.priority;
-		}
-		private IFilter getFilter() {
-			return this.filter;
-		}
-		private boolean acceptsSubclasses() {
-			return this.acceptSubclasses;
-		}
-		private Subscribe getHandlerAnnotation() {
-			return this.handlerAnnotation;
+			this.eventClass = eventClass;
 		}
 	}
 
@@ -205,7 +184,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 			this.filter = filter;
 			return this;
 		}
-		
+
 		/**
 		 * Invokes the listening method by reflection if the filter test is passed.
 		 * @param event {@link Event}
@@ -240,6 +219,11 @@ public class DRCEventBus implements IEventBus, ICopyable {
 	 * Contains all registered listeners
 	 */
 	private final HashMap<Class<? extends Event>, List<InternalMethodEntry>> registeredEntries = new HashMap<Class<? extends Event>, List<InternalMethodEntry>>();
+
+	/**
+	 * Contains all registered listeners that accept subclasses of events (those listeners are also added to {@link DRCEventBus#registeredEntries})
+	 */
+	private final List<InternalMethodEntry> subclassListeners = new ArrayList<InternalMethodEntry>();
 
 	/**
 	 * Index lookup map, used for creating the bytecode
@@ -297,12 +281,43 @@ public class DRCEventBus implements IEventBus, ICopyable {
 	}
 
 	/**
+	 * Registers a list of {@link MethodEntry} to the {@link DRCEventBus}. The event bus has to be updated with {@link DRCEventBus#bind()} for the new {@link IListener}s to take effect.
+	 * <p>
+	 * The default event bus has a limit of {@link DRCEventBus#MAX_METHODS} method entries. If more than {@link DRCEventBus#MAX_METHODS} method entries are registered an {@link IndexOutOfBoundsException} is thrown.
+	 * @param entry {@link List} of {@link MethodEntry} to register
+	 * @throws IndexOutOfBoundsException
+	 */
+	public final void register(List<MethodEntry> entryList) throws IndexOutOfBoundsException {
+		//Check for array bounds
+		if(this.methodCount > MAX_METHODS) {
+			throw new IndexOutOfBoundsException("Too many registered methods. Max: " + MAX_METHODS);
+		} else if(this.methodCount + entryList.size() > MAX_METHODS) {
+			throw new IndexOutOfBoundsException("Registering this listener exceeds the maximum " +
+					"amount of registered methods. " +
+					"Current: " + this.methodCount +
+					" Max: " + MAX_METHODS);
+		}
+
+		//Add all method entries
+		for(MethodEntry entry : entryList) {
+			Class<? extends Event> paramType = (Class<? extends Event>) entry.getEventClass();
+			List<InternalMethodEntry> lle = this.registeredEntries.get(paramType);
+			if(lle == null) {
+				lle = new ArrayList<InternalMethodEntry>();
+				this.registeredEntries.put(paramType, lle);
+			}
+			lle.add(new InternalMethodEntry(entry.getListener(), entry.getMethod(), entry.getHandlerAnnotation(), entry.getFilter(), entry.getEventClass()));
+			this.methodCount++;
+		}
+
+		this.updateArrays();
+	}
+
+	/**
 	 * Registers a listener to the {@link DRCEventBus}. The event bus has to be updated with {@link DRCEventBus#bind()} for the new listener to take effect.
 	 * <p>
 	 * The default EventBus has a limit of {@link DRCEventBus#MAX_METHODS} listening methods. If more than {@link DRCEventBus#MAX_METHODS} listening methods 
 	 * are registered an IndexOutOfBoundsException is thrown.
-	 * <p>
-	 * Registering a listener that accepts subclasses of an event will ignore priority sorting.
 	 * <p>
 	 * A {@link SubscriptionException} is thrown if an invalid method has been found.
 	 * @param listener {@link IListener} to register
@@ -312,26 +327,21 @@ public class DRCEventBus implements IEventBus, ICopyable {
 	 */
 	public final List<MethodEntry> registerAndAnalyze(IListener listener) throws SubscriptionException, IndexOutOfBoundsException {
 		List<MethodEntry> entryList = DRCEventBus.analyzeListener(listener);
-		if(this.methodCount > MAX_METHODS) {
-			throw new IndexOutOfBoundsException("Too many registered methods. Max: " + MAX_METHODS);
-		} else if(this.methodCount + entryList.size() > MAX_METHODS) {
-			throw new IndexOutOfBoundsException("Registering this listener exceeds the maximum " +
-					"amount of registered methods. " +
-					"Current: " + this.methodCount +
-					" Max: " + MAX_METHODS);
-		}
-		for(MethodEntry entry : entryList) {
-			Class<? extends Event> paramType = (Class<? extends Event>) entry.getEventClass();
-			List<InternalMethodEntry> lle = this.registeredEntries.get(paramType);
-			if(lle == null) {
-				lle = new ArrayList<InternalMethodEntry>();
-				this.registeredEntries.put(paramType, lle);
-			}
-			lle.add(new InternalMethodEntry(listener, entry.getMethod(), entry.getHandlerAnnotation(), entry.getFilter()));
-			this.methodCount++;
-		}
-		this.updateArray();
+		this.register(entryList);
 		return Collections.unmodifiableList(entryList);
+	}
+
+	/**
+	 * Registers a single {@link MethodEntry} to the {@link DRCEventBus}. The event bus has to be updated with {@link DRCEventBus#bind()} for the new {@link IListener} to take effect.
+	 * <p>
+	 * The default event bus has a limit of {@link DRCEventBus#MAX_METHODS} method entries. If more than {@link DRCEventBus#MAX_METHODS} method entries are registered an {@link IndexOutOfBoundsException} is thrown.
+	 * @param entry {@link MethodEntry} to register
+	 * @throws IndexOutOfBoundsException
+	 */
+	public final void register(MethodEntry entry) throws IndexOutOfBoundsException {
+		List<MethodEntry> entryList = new ArrayList<MethodEntry>();
+		entryList.add(entry);
+		this.register(entryList);
 	}
 
 	/**
@@ -339,8 +349,6 @@ public class DRCEventBus implements IEventBus, ICopyable {
 	 * <p>
 	 * The default EventBus has a limit of {@link DRCEventBus#MAX_METHODS} listening methods. If more than {@link DRCEventBus#MAX_METHODS} listening methods 
 	 * are registered an {@link IndexOutOfBoundsException} is thrown.
-	 * <p>
-	 * Registering a listener that accepts subclasses of an event will ignore priority sorting.
 	 * <p>
 	 * A {@link SubscriptionException} is thrown if an invalid method has been found.
 	 * @param listener {@link IListener} to register
@@ -388,32 +396,6 @@ public class DRCEventBus implements IEventBus, ICopyable {
 	}
 
 	/**
-	 * Registers a single {@link MethodEntry} to the {@link DRCEventBus}. The event bus has to be updated with {@link DRCEventBus#bind()} for the new {@link IListener} to take effect.
-	 * <p>
-	 * Registering a listener that accepts subclasses of an event will ignore priority sorting.
-	 * <p>
-	 * The default event bus has a limit of {@link DRCEventBus#MAX_METHODS} method entries. If more than {@link DRCEventBus#MAX_METHODS} method entries are registered an {@link IndexOutOfBoundsException} is thrown.
-	 * @param entry {@link MethodEntry} to register
-	 * @throws IndexOutOfBoundsException
-	 */
-	public final void register(MethodEntry entry) throws IndexOutOfBoundsException {
-		if(this.methodCount > MAX_METHODS) {
-			throw new IndexOutOfBoundsException("Too many registered methods. Max: " + MAX_METHODS);
-		} else if(this.methodCount >= MAX_METHODS) {
-			throw new IndexOutOfBoundsException("Registering this method entry exceeds the maximum " +
-					"amount of registered methods. Max: " + MAX_METHODS);
-		}
-		List<InternalMethodEntry> lle = this.registeredEntries.get(entry.getEventClass());
-		if(lle == null) {
-			lle = new ArrayList<InternalMethodEntry>();
-			this.registeredEntries.put(entry.getEventClass(), lle);
-		}
-		lle.add(new InternalMethodEntry(entry.getListener(), entry.getMethod(), entry.getHandlerAnnotation(), entry.getFilter()));
-		this.methodCount++;
-		this.updateArray();
-	}
-
-	/**
 	 * Returns a read-only list of all registered method entries.
 	 * @return {@link List} read-only list of all registered method entries
 	 */
@@ -421,7 +403,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 		List<MethodEntry> result = new ArrayList<MethodEntry>();
 		for(Entry<Class<? extends Event>, List<InternalMethodEntry>> e : this.registeredEntries.entrySet()) {
 			for(InternalMethodEntry lme : e.getValue()) {
-				result.add(new MethodEntry(e.getKey(), lme.getInstance(), lme.getMethod(), lme.getHandlerAnnotation()));
+				result.add(new MethodEntry(e.getKey(), lme.instance, lme.method, lme.handlerAnnotation));
 			}
 		}
 		return Collections.unmodifiableList(result);
@@ -448,35 +430,35 @@ public class DRCEventBus implements IEventBus, ICopyable {
 				if(method.getReturnType() != void.class) {
 					continue;
 				}
-				@SuppressWarnings("unchecked")
-				Class<? extends Event> paramType = (Class<? extends Event>) method.getParameterTypes()[0];
-				List<InternalMethodEntry> lle = this.registeredEntries.get(paramType);
-				if(lle == null) {
-					this.registeredEntries.remove(paramType);
-					return;
-				}
-				InternalMethodEntry toRemove = null;
-				for(InternalMethodEntry le : lle) {
-					if(le.getInstance().getClass().equals(listener.getClass()) &&
-							le.getMethodName().equals(method.getName())) {
-						toRemove = le;
-						break;
+				Iterator<InternalMethodEntry> subclassListenersIterator = this.subclassListeners.iterator();
+				while(subclassListenersIterator.hasNext()) {
+					InternalMethodEntry ime = subclassListenersIterator.next();
+					if(ime.method.equals(method)) {
+						subclassListenersIterator.remove();
 					}
 				}
-				if(toRemove != null) {
-					lle.remove(toRemove);
-					this.methodCount--;
-				}
-				if(lle.size() == 0) {
-					this.registeredEntries.remove(paramType);
-					return;
-				}
-				if(toRemove != null) {
-					break;
+				Iterator<Entry<Class<? extends Event>, List<InternalMethodEntry>>> entryIterator = this.registeredEntries.entrySet().iterator();
+				while(entryIterator.hasNext()) {
+					Entry<Class<? extends Event>, List<InternalMethodEntry>> entry = entryIterator.next();
+					Class<? extends Event> eventClassGroup = entry.getKey();
+					List<InternalMethodEntry> imeList = entry.getValue();
+					Iterator<InternalMethodEntry> imeIterator = imeList.iterator();
+					while(imeIterator.hasNext()) {
+						InternalMethodEntry ime = imeIterator.next();
+						if(ime.method.equals(method)) {
+							imeIterator.remove();
+							if(ime.method.getParameterTypes()[0].equals(eventClassGroup)) {
+								this.methodCount--;
+							}
+						}
+					}
+					if(imeList.size() == 0) {
+						entryIterator.remove();
+					}
 				}
 			}
 		}
-		this.updateArray();
+		this.updateArrays();
 	}
 
 	/**
@@ -484,15 +466,24 @@ public class DRCEventBus implements IEventBus, ICopyable {
 	 * @param methodEntry {@link MethodEntry} to unregister
 	 */
 	public final void unregister(MethodEntry methodEntry) {
+		InternalMethodEntry toRemove = null;
+		for(InternalMethodEntry ime : this.subclassListeners) {
+			if(ime.method.equals(methodEntry.getMethod())) {
+				toRemove = ime;
+				break;
+			}
+		}
+		if(toRemove != null) {
+			this.subclassListeners.remove(toRemove);
+		}
 		List<InternalMethodEntry> lle = this.registeredEntries.get(methodEntry.getEventClass());
 		if(lle == null) {
 			this.registeredEntries.remove(methodEntry.getEventClass());
 			return;
 		}
-		InternalMethodEntry toRemove = null;
+		toRemove = null;
 		for(InternalMethodEntry le : lle) {
-			if(le.getInstance().getClass().equals(methodEntry.getListener().getClass()) &&
-					le.getMethodName().equals(methodEntry.getMethod().getName())) {
+			if(le.method.equals(methodEntry.getMethod())) {
 				toRemove = le;
 				break;
 			}
@@ -517,7 +508,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 	 * @throws SubscriptionException
 	 * @return {@link MethodEntry}
 	 */
-	private static final MethodEntry initFilter(MethodEntry entry) throws SubscriptionException {
+	private static synchronized final MethodEntry initFilter(MethodEntry entry) throws SubscriptionException {
 		if(entry.getFilter() != null) {
 			return entry;
 		}
@@ -556,7 +547,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 		this.registeredEntries.clear();
 		this.indexLookup.clear();
 		this.filterIndexLookup.clear();
-		this.updateArray();
+		this.updateArrays();
 	}
 
 	/**
@@ -567,7 +558,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 		ArrayList<IListener> listeners = new ArrayList<IListener>();
 		for(Entry<Class<? extends Event>, List<InternalMethodEntry>> e : this.registeredEntries.entrySet()) {
 			for(InternalMethodEntry le : e.getValue()) {
-				listeners.add(le.getInstance());
+				listeners.add(le.instance);
 			}
 		}
 		return Collections.unmodifiableList(listeners);
@@ -576,7 +567,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 	/**
 	 * Updates the listener array and index lookup map.
 	 */
-	private final void updateArray() {
+	private final void updateArrays() {
 		this.indexLookup.clear();
 		this.filterIndexLookup.clear();
 		ArrayList<IListener> arrayListenerList = new ArrayList<IListener>();
@@ -584,10 +575,10 @@ public class DRCEventBus implements IEventBus, ICopyable {
 		for(Entry<Class<? extends Event>, List<InternalMethodEntry>> e : this.registeredEntries.entrySet()) {
 			List<InternalMethodEntry> listenerEntryList = e.getValue();
 			for(InternalMethodEntry listenerEntry : listenerEntryList) {
-				arrayListenerList.add(listenerEntry.getInstance());
-				this.indexLookup.put(listenerEntry.getInstance(), arrayListenerList.size() - 1);
-				if(listenerEntry.getFilter() != null) {
-					arrayFilterList.add(listenerEntry.getFilter());
+				arrayListenerList.add(listenerEntry.instance);
+				this.indexLookup.put(listenerEntry.instance, arrayListenerList.size() - 1);
+				if(listenerEntry.filter != null) {
+					arrayFilterList.add(listenerEntry.filter);
 					this.filterIndexLookup.put(listenerEntry, arrayFilterList.size() - 1);
 				}
 			}
@@ -611,18 +602,62 @@ public class DRCEventBus implements IEventBus, ICopyable {
 	 * Recompiles {@link DispatcherImpl} with all registered listeners.
 	 * @return {@link Dispatcher}
 	 */
-	private final Dispatcher compileDispatcher() {
+	private final synchronized Dispatcher compileDispatcher() {
 		try {
+			//Check for available events for method entries that accept subclasses and add to the list if available
+			this.subclassListeners.clear();
+			for(Entry<Class<? extends Event>, List<InternalMethodEntry>> mapEntry : this.registeredEntries.entrySet()) {
+				List<InternalMethodEntry> entryList = mapEntry.getValue();
+				for(InternalMethodEntry entry : entryList) {
+					if(entry.handlerAnnotation.acceptSubclasses()) {
+						//InternalMethodEntry internalEntry = new InternalMethodEntry(entry.getListener(), entry.getMethod(), entry.getHandlerAnnotation(), entry.getFilter(), entry.getEventClass());
+
+						//Add to subclass listeners list
+						boolean containsEntry = false;
+						for(InternalMethodEntry ime : this.subclassListeners) {
+							if(ime.method.equals(entry.method)) {
+								containsEntry = true;
+								break;
+							}
+						}
+						if(!containsEntry) {
+							this.subclassListeners.add(entry);
+						}
+
+						//Check if any event subclasses are already available and can be registered in the normal registeredEntries map
+						for(Class<? extends Event> eventClass : this.registeredEntries.keySet()) {
+							if(entry.eventClass.isAssignableFrom(eventClass)) {
+								List<InternalMethodEntry> imeList = this.registeredEntries.get(eventClass);
+								containsEntry = false;
+								for(InternalMethodEntry ime : imeList) {
+									if(ime.method.equals(entry.method)) {
+										containsEntry = true;
+										break;
+									}
+								}
+								if(!containsEntry) {
+									imeList.add(entry);
+								}
+							}
+						}
+					}
+				}
+			}
+
+			//Sort by priority
 			Comparator<InternalMethodEntry> prioritySorter = new Comparator<InternalMethodEntry>() {
 				@Override
 				public int compare(InternalMethodEntry e1, InternalMethodEntry e2) {
-					return e2.getPriority() - e1.getPriority();
+					return e2.priority - e1.priority;
 				}
 			};
 			for(List<InternalMethodEntry> lle : this.registeredEntries.values()) {
 				Collections.sort(lle, prioritySorter);
 			}
-			ClassLoader customClassLoader = new ClassLoader() {
+			Collections.sort(this.subclassListeners, prioritySorter);
+
+			//Instrumentation classloader
+			ClassLoader instrumentationClassLoader = new ClassLoader() {
 				@SuppressWarnings("unchecked")
 				@Override
 				protected Class<?> loadClass(String paramString, boolean paramBoolean) throws ClassNotFoundException {
@@ -643,7 +678,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 							DRCEventBus.this.compilationNode.addChild(mainNode);
 							for(MethodNode methodNode : (List<MethodNode>) classNode.methods) {
 								if(methodNode.name.equals(DISPATCHER_DISPATCH_EVENT_INTERNAL)) {
-									instrumentDispatcherMethod(methodNode, true, mainNode);
+									instrumentDispatcher(methodNode, true, mainNode);
 								}
 							}
 							DRCEventBus.this.compilationNode = mainNode;
@@ -658,7 +693,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 					return super.loadClass(paramString, paramBoolean);
 				}
 			};
-			Class<?> dispatcherClass = customClassLoader.loadClass(this.dispatcherClass.getName());
+			Class<?> dispatcherClass = instrumentationClassLoader.loadClass(this.dispatcherClass.getName());
 			Constructor<?> ctor = dispatcherClass.getDeclaredConstructor();
 			ctor.setAccessible(true);
 			Dispatcher dispatcher = (Dispatcher) ctor.newInstance();
@@ -675,7 +710,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 	 * @param methodNode {@link MethodNode}
 	 */
 	@SuppressWarnings("unchecked")
-	private final void instrumentDispatcherMethod(MethodNode methodNode, boolean cancellable, CompilationNode mainNode) {
+	private final synchronized void instrumentDispatcher(MethodNode methodNode, boolean cancellable, CompilationNode mainNode) {
 		InsnList methodInstructionSet = methodNode.instructions;
 		ArrayList<AbstractInsnNode> instructionSet = new ArrayList<AbstractInsnNode>();
 		Iterator<AbstractInsnNode> it = methodInstructionSet.iterator();
@@ -691,7 +726,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 					insn.getOpcode() == Opcodes.DRETURN ||
 					insn.getOpcode() == Opcodes.FRETURN);
 			boolean isDispatcherMethod = this.dispatcherClass != DispatcherImpl.class && insn.getOpcode() == Opcodes.INVOKESTATIC && ((MethodInsnNode)insn).name.equals(DISPATCHER_DISPATCH) && ((MethodInsnNode)insn).owner.equals(Dispatcher.class.getName().replace(".", "/"));
-			//Only implement first, throw an error if there are multiple implementations
+			//Only implement first dispatcher, throw an error if there are multiple implementations
 			if(isDispatcherMethod && implementationNode != null) {
 				throw new DispatcherException("The dispatching implementation Dispatcher#dispatch() can only be used once per method");
 			}
@@ -711,8 +746,20 @@ public class DRCEventBus implements IEventBus, ICopyable {
 		CompilationNode eventNode = new CompilationNode((cancellable ? "Cancellable" : "Non cancellable") + " events");
 		mainNode.addChild(eventNode);
 
+		//Scope start for contained variable
+		LabelNode containedVarStart = new LabelNode();
+		instructionSet.add(containedVarStart);
+
+		//Add the contained variable
+		int containedVarID = methodNode.localVariables.size();
+		LocalVariableNode containedVarNode = new LocalVariableNode("contained", "Z", null, containedVarStart, exitNode, containedVarID);
+		methodNode.localVariables.add(containedVarNode);
+		//Set contained variable to false
+		instructionSet.add(new InsnNode(Opcodes.ICONST_0));
+		instructionSet.add(new VarInsnNode(Opcodes.ISTORE, containedVarID));
+
 		for(Entry<Class<? extends Event>, List<InternalMethodEntry>> e : this.registeredEntries.entrySet()) {
-			String eventClassName = e.getKey().getName().replace(".", "/");
+			String eventClassGroup = TypeConversions.getClassType(e.getKey());
 
 			CompilationNode eventClassNode = new CompilationNode(e.getKey().getName());
 			eventNode.addChild(eventClassNode);
@@ -750,76 +797,56 @@ public class DRCEventBus implements IEventBus, ICopyable {
 			 * ...
 			 */
 
-			boolean hasNonSCA = false;
-			boolean hasSCA = false;
+			CompilationNode staticListenersNode = new CompilationNode("Static Listeners");
+			eventClassNode.addChild(staticListenersNode);
 
-			//Contains all non SCA (SubClasses Accepted) listener entries
-			List<InternalMethodEntry> listNonSCA = new ArrayList<InternalMethodEntry>();
+			//Fail label, jumped to if class comparison fails
+			LabelNode classCompareFailLabelNode = new LabelNode();
 
-			//Contains all SCA listener entries
-			List<InternalMethodEntry> listSCA = new ArrayList<InternalMethodEntry>();
+			//if(event.getClass() != listenerArray[n].eventType) -> jump to classCompareFailLabelNode
+			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
+			instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Object", "getClass", "()Ljava/lang/Class;", false));
+			String eventClassNameClass = "L" + eventClassGroup + ";";
+			instructionSet.add(new LdcInsnNode(Type.getType(eventClassNameClass)));
+			instructionSet.add(new JumpInsnNode(Opcodes.IF_ACMPNE, classCompareFailLabelNode));
 
-			//Check SCA and non SCA listener entries
+			//Set contained variable to true
+			instructionSet.add(new InsnNode(Opcodes.ICONST_1));
+			instructionSet.add(new VarInsnNode(Opcodes.ISTORE, containedVarID));
+
 			for(InternalMethodEntry listenerEntry : e.getValue()) {
-				if(!listenerEntry.acceptsSubclasses()) {
-					hasNonSCA = true;
-					listNonSCA.add(listenerEntry);
-					continue;
-				}
-				hasSCA = true;
-				listSCA.add(listenerEntry);
+				//Instrument dispatcher for listener
+				this.instrumentSingleDispatcher(instructionSet, listenerEntry, 
+						TypeConversions.getClassType(listenerEntry.eventClass), cancellable, exitNode, 
+						classCompareFailLabelNode, staticListenersNode);
 			}
 
-			//Instrument dispatcher methods that accept subclasses
-			if(hasSCA) {
-				CompilationNode scaNode = new CompilationNode("SCA Listeners");
-				eventClassNode.addChild(scaNode);
-
-				//Fail label, jumped to if instanceof fails
-				LabelNode instanceofFailLabelNode = new LabelNode();
-
-				//if(event instanceof eventclass  == false) -> jump to instanceofFailLabelNode
-				instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
-				instructionSet.add(new TypeInsnNode(Opcodes.INSTANCEOF, eventClassName));
-				instructionSet.add(new JumpInsnNode(Opcodes.IFEQ, instanceofFailLabelNode));
-
-				for(InternalMethodEntry listenerEntry : listSCA) {
-					this.instrumentDispatcher(instructionSet, listenerEntry, e, 
-							eventClassName, cancellable, exitNode, 
-							instanceofFailLabelNode, scaNode);
-				}
-
-				//failLabelNode
-				instructionSet.add(instanceofFailLabelNode);
-			}
-
-			//Instrument dispatcher methods that don't accept subclasses
-			if(hasNonSCA) {
-				CompilationNode nonScaNode = new CompilationNode("Non SCA Listeners");
-				eventClassNode.addChild(nonScaNode);
-
-				//Fail label, jumped to if class comparison fails
-				LabelNode classCompareFailLabelNode = new LabelNode();
-
-				//if(event.getClass() != listenerArray[n].eventType) -> jump to classCompareFailLabelNode
-				instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
-				instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/lang/Object", "getClass", "()Ljava/lang/Class;", false));
-				String eventClassNameClass = "L" + eventClassName + ";";
-				instructionSet.add(new LdcInsnNode(Type.getType(eventClassNameClass)));
-				instructionSet.add(new JumpInsnNode(Opcodes.IF_ACMPNE, classCompareFailLabelNode));
-
-				for(InternalMethodEntry listenerEntry : listNonSCA) {
-					this.instrumentDispatcher(instructionSet, listenerEntry, e, 
-							eventClassName, cancellable, exitNode, 
-							classCompareFailLabelNode, nonScaNode);
-				}
-
-				//failLabelNode
-				instructionSet.add(classCompareFailLabelNode);
-			}
+			//Jumped to if class comparison fails
+			instructionSet.add(classCompareFailLabelNode);
 		}
 
-		//exitNode
+		CompilationNode dynamicListenersNode = new CompilationNode("Dynamic Listeners");
+		mainNode.addChild(dynamicListenersNode);
+
+		//Jump to exit if contained == true
+		instructionSet.add(new VarInsnNode(Opcodes.ILOAD, containedVarID));
+		instructionSet.add(new JumpInsnNode(Opcodes.IFNE, exitNode));
+
+		for(InternalMethodEntry listenerEntry : this.subclassListeners) {
+			//Fail label, jumped to if class comparison fails
+			LabelNode classInstanceofFailLabelNode = new LabelNode();
+
+			//Instrument dispatcher for listener
+			this.instrumentSingleDispatcher(instructionSet, listenerEntry,
+					TypeConversions.getClassType(listenerEntry.eventClass), cancellable, exitNode, 
+					classInstanceofFailLabelNode, dynamicListenersNode);
+
+			//Jumped to if instanceof check fails
+			instructionSet.add(classInstanceofFailLabelNode);
+		}
+
+
+		//Jumped to if an event was cancelled or contained == true
 		instructionSet.add(exitNode);
 
 		//Instrumentation callback to let the user modify the dispatching bytecode
@@ -844,23 +871,22 @@ public class DRCEventBus implements IEventBus, ICopyable {
 	 * @param exitLabelNode
 	 * @param failailLabelNode
 	 */
-	private final void instrumentDispatcher(ArrayList<AbstractInsnNode> instructionSet, InternalMethodEntry listenerEntry, 
-			Entry<Class<? extends Event>, List<InternalMethodEntry>> entryList, String eventClassName, boolean cancellable,
-			LabelNode exitLabelNode, LabelNode failailLabelNode, CompilationNode compilationNode) {
-		String className = this.dispatcherClass.getName().replace(".", "/");
-		String fieldType = "[L" + IListener.class.getName().replace(".", "/") + ";";
-		String listenerClassName = listenerEntry.getInstance().getClass().getName().replace(".", "/");
-		String listenerMethodName = listenerEntry.getMethodName();
-		String listenerMethodType = "(L" + entryList.getKey().getName().replace(".", "/") + ";)V";
-		int listenerIndex = this.indexLookup.get(listenerEntry.getInstance());
+	private final synchronized void instrumentSingleDispatcher(ArrayList<AbstractInsnNode> instructionSet, InternalMethodEntry listenerEntry, 
+			String eventClassName, boolean cancellable, LabelNode exitLabelNode, LabelNode failailLabelNode, CompilationNode compilationNode) {
+		String className = TypeConversions.getClassType(this.dispatcherClass);
+		String fieldType = TypeConversions.getArrayClassParamType(IListener.class);
+		String listenerClassName = TypeConversions.getClassType(listenerEntry.instance.getClass());
+		String listenerMethodName = listenerEntry.methodName;
+		String listenerMethodType = TypeConversions.getListenerMethodType(eventClassName);
+		int listenerIndex = this.indexLookup.get(listenerEntry.instance);
 
-		CompilationNode listenerNode = new CompilationNode(listenerEntry.getInstance().getClass().getName() + "#" + listenerEntry.methodName);
+		CompilationNode listenerNode = new CompilationNode(listenerEntry.instance.getClass().getName() + "#" + listenerEntry.methodName);
 		compilationNode.addChild(listenerNode);
 
 		CompilationNode indexNode = new CompilationNode("Class index: " + listenerIndex);
 		listenerNode.addChild(indexNode);
 
-		CompilationNode priorityNode = new CompilationNode("Priority: " + listenerEntry.getPriority());
+		CompilationNode priorityNode = new CompilationNode("Priority: " + listenerEntry.priority);
 		listenerNode.addChild(priorityNode);
 
 		//Used for filter fail jump or subclass check fail jump (only if subclasses are not accepted)
@@ -868,18 +894,17 @@ public class DRCEventBus implements IEventBus, ICopyable {
 
 		//Only implement if filter is not default IFilter class
 		//if(!filterArray[n].filter(listenerArray[p], event)) -> jump to entryFailLabelNode
-		if(listenerEntry.getFilter() != null) {
+		if(listenerEntry.filter != null) {
 			entryFailLabelNode = new LabelNode();
 			int filterIndex = this.filterIndexLookup.get(listenerEntry);
-			String filterClassName = listenerEntry.getFilter().getClass().getName().replace(".", "/");
-			String filterFieldType = "[L" + IFilter.class.getName().replace(".", "/") + ";";
-			String filterMethodType = "(L" + Event.class.getName().replace(".", "/") + ";)Z";
-			//load instance of this class ('this' keyword)
-			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
+			String filterClassName = TypeConversions.getClassType(listenerEntry.filter.getClass());
+			String filterFieldType = TypeConversions.getArrayClassParamType(IFilter.class);
+			String filterMethodType = TypeConversions.getFilterMethodType();
+
 			//get filter array
+			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
 			instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, DISPATCHER_FILTER_ARRAY, filterFieldType));
 			//push index onto stack
-			//some tiny bytecode optimization
 			if(filterIndex <= 5) {
 				switch(filterIndex) {
 				case 0:
@@ -908,46 +933,46 @@ public class DRCEventBus implements IEventBus, ICopyable {
 			} else {
 				instructionSet.add(new LdcInsnNode(filterIndex));
 			}
-			//load filter from array
+			//load filter from array and cast filter type
 			instructionSet.add(new InsnNode(Opcodes.AALOAD));
-			//cast filter type
 			instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, filterClassName));
-			//load event
+
+			//load event and invoke filter, return boolean
 			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
-			//invoke verify(listener, event), return boolean
 			instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, filterClassName, IFILTER_FILTER, filterMethodType, false));
-			//jump if false
+
+			//jump if false was returned
 			instructionSet.add(new JumpInsnNode(Opcodes.IFEQ, entryFailLabelNode));
 		}
 
 		if(cancellable) {
 			LabelNode instanceofEventCancellableFailLabel = new LabelNode();
-			//load event
-			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
 			//event instanceof EventCancellable
-			instructionSet.add(new TypeInsnNode(Opcodes.INSTANCEOF, EventCancellable.class.getName().replace(".", "/")));
+			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
+			instructionSet.add(new TypeInsnNode(Opcodes.INSTANCEOF, TypeConversions.getClassType(EventCancellable.class)));
+
 			//if(event instanceof EventCancellable == false) -> jump to instanceofEventCancellableFailLabel
 			instructionSet.add(new JumpInsnNode(Opcodes.IFEQ, instanceofEventCancellableFailLabel));
-			//load event
+
+			//load and cast event to EventCancellable
 			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
-			//cast event to EventCancellable
 			instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, eventClassName));
+
 			//invoke EventCancellable#isCancelled
 			instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, eventClassName, IEVENTCANCELLABLE_IS_CANCELLED, "()Z", false));
+
 			//if(!EventCancellable#isCancelled()) -> jump to exitNode
 			instructionSet.add(new JumpInsnNode(Opcodes.IFNE, exitLabelNode));
 			instructionSet.add(instanceofEventCancellableFailLabel);
 		}
 
 		//Only implement IListener#isEnabled() check if Receiver#forced() is false
-		if(!listenerEntry.isForced()) {
+		if(!listenerEntry.forced) {
 			////////////////////////////// Check if listener is enabled //////////////////////////////
-			//load instance of this class ('this' keyword)
-			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
 			//get listener array
+			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
 			instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, DISPATCHER_LISTENER_ARRAY, fieldType));
 			//push index onto stack
-			//some tiny bytecode optimization
 			if(listenerIndex <= 5) {
 				switch(listenerIndex) {
 				case 0:
@@ -976,23 +1001,22 @@ public class DRCEventBus implements IEventBus, ICopyable {
 			} else {
 				instructionSet.add(new LdcInsnNode(listenerIndex));
 			}
-			//load listener from array
+			//load listener from array and cast listener type
 			instructionSet.add(new InsnNode(Opcodes.AALOAD));
-			//cast listener type
 			instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, listenerClassName));
-			//invoke isEnabled, get returned boolean
+
+			//invoke isEnabled, return boolean
 			instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, listenerClassName, ILISTENER_IS_ENABLED, "()Z", false));
+
 			//jump to failLabelNode if returned boolean is false
 			instructionSet.add(new JumpInsnNode(Opcodes.IFEQ, failailLabelNode));
 		}
 
 		///////////////////////////////// Invoke listener method /////////////////////////////////
-		//load instance of this class ('this' keyword)
-		instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
 		//get listener array
+		instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
 		instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, DISPATCHER_LISTENER_ARRAY, fieldType));
 		//push index onto stack
-		//some tiny bytecode optimization
 		if(listenerIndex <= 5) {
 			switch(listenerIndex) {
 			case 0:
@@ -1021,24 +1045,24 @@ public class DRCEventBus implements IEventBus, ICopyable {
 		} else {
 			instructionSet.add(new LdcInsnNode(listenerIndex));
 		}
-		//load listener from array
+		//load listener from array and cast listener type
 		instructionSet.add(new InsnNode(Opcodes.AALOAD));
-		//cast listener type
 		instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, listenerClassName));
-		//load parameter
+
+		//load parameter and cast parameter type (the event to post)
 		instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
-		//cast parameter type
 		instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, eventClassName));
+
 		//invoke method
 		instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, listenerClassName, listenerMethodName, listenerMethodType, false));
 
-		CompilationNode forcedNode = new CompilationNode((!listenerEntry.isForced() ? "[ ]" : "[x]") + " Forced");
+		CompilationNode forcedNode = new CompilationNode((!listenerEntry.forced ? "[ ]" : "[x]") + " Forced");
 		listenerNode.addChild(forcedNode);
 
-		if(listenerEntry.getFilter() != null) {
+		if(listenerEntry.filter != null) {
 			CompilationNode filterNode = new CompilationNode("[x] Filter");
 			listenerNode.addChild(filterNode);
-			CompilationNode filterNameNode = new CompilationNode(listenerEntry.getFilter().getClass().getName());
+			CompilationNode filterNameNode = new CompilationNode(listenerEntry.filter.getClass().getName());
 			filterNode.addChild(filterNameNode);
 		} else {
 			CompilationNode filterNode = new CompilationNode("[ ] Filter");
@@ -1093,7 +1117,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 			throw new DispatcherException("Could not set dispatcher", ex);
 		}
 	}
-	
+
 	/**
 	 * Returns the compiled dispatcher object.
 	 * <p>
@@ -1144,9 +1168,5 @@ public class DRCEventBus implements IEventBus, ICopyable {
 	 */
 	protected boolean instrumentDispatcher(List<AbstractInsnNode> baseInstructions, MethodNode methodNode) {
 		return true;
-	}
-	
-	public static DRCExpander<DRCEventBus> createUnlimitedEventBus() {
-		return new DRCExpander<DRCEventBus>(new DRCEventBus());
 	}
 }

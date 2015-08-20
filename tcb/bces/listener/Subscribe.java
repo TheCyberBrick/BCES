@@ -20,14 +20,10 @@ import tcb.bces.listener.filter.IFilter;
 public @interface Subscribe {
 	/**
 	 * Set this to true if subclasses of the event should be accepted.
-	 * Enabling this feature can come with a limitation, for example
-	 * the loss of priority sorting. Such limitations are specific to 
-	 * the event bus implementation that's being used.
-	 * 
 	 * @return boolean
 	 */
 	boolean acceptSubclasses() default false;
-	
+
 	/**
 	 * Set this to true if {@link IListener#isEnabled()} should be ignored.
 	 * False by default.

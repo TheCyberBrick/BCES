@@ -101,7 +101,9 @@ public class MappedEventBus implements IEventBus {
 		if(event instanceof EventCancellable) {
 			eventCancellable = (EventCancellable) event;
 		}
+		boolean contained = false;
 		if(methodEntries != null) {
+			contained = true;
 			for(MethodEntry me : methodEntries) {
 				if(me.getHandlerAnnotation().forced() || me.getListener().isEnabled()) {
 					try {
@@ -115,7 +117,7 @@ public class MappedEventBus implements IEventBus {
 				}
 			}
 		}
-		if(!this.eventListenerMap.containsKey(eventClass)) {
+		if(!contained) {
 			for(MethodEntry me : this.subclassListeners) {
 				if(me.getHandlerAnnotation().forced() || me.getListener().isEnabled()) {
 					if(me.getEventClass() != eventClass) {

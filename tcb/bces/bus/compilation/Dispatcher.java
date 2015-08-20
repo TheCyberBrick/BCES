@@ -21,7 +21,7 @@ import tcb.bces.listener.filter.IFilter;
 public abstract class Dispatcher {
 	protected IListener[] listenerArray;
 	protected IFilter[] filterArray;
-
+	
 	/**
 	 * Dispatches the event to all registered listeners that use that event.
 	 * More information about the default dispatcher can be found at {@link Dispatcher#dispatch()}.
