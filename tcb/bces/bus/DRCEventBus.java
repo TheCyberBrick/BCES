@@ -411,6 +411,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 
 	/**
 	 * Unregisters an {@link IListener} from the {@link DRCEventBus}. The event bus has to be updated with {@link DRCEventBus#bind()} for this to take effect.
+	 * Only unregisters the first occurrence of the specified listener.
 	 * @param listener {@link IListener} to unregister
 	 */
 	@Override
@@ -430,29 +431,28 @@ public class DRCEventBus implements IEventBus, ICopyable {
 				if(method.getReturnType() != void.class) {
 					continue;
 				}
-				Iterator<InternalMethodEntry> subclassListenersIterator = this.subclassListeners.iterator();
-				while(subclassListenersIterator.hasNext()) {
-					InternalMethodEntry ime = subclassListenersIterator.next();
-					if(ime.method.equals(method)) {
-						subclassListenersIterator.remove();
-					}
-				}
 				Iterator<Entry<Class<? extends Event>, List<InternalMethodEntry>>> entryIterator = this.registeredEntries.entrySet().iterator();
 				while(entryIterator.hasNext()) {
 					Entry<Class<? extends Event>, List<InternalMethodEntry>> entry = entryIterator.next();
 					Class<? extends Event> eventClassGroup = entry.getKey();
 					List<InternalMethodEntry> imeList = entry.getValue();
 					Iterator<InternalMethodEntry> imeIterator = imeList.iterator();
+					boolean removed = false;
 					while(imeIterator.hasNext()) {
 						InternalMethodEntry ime = imeIterator.next();
-						if(ime.method.equals(method)) {
+						if(ime.method.equals(method) && ime.instance == listener) {
 							imeIterator.remove();
 							if(ime.method.getParameterTypes()[0].equals(eventClassGroup)) {
 								this.methodCount--;
+								if(imeList.size() == 0) {
+									entryIterator.remove();
+									removed = true;
+								}
+								break;
 							}
 						}
 					}
-					if(imeList.size() == 0) {
+					if(!removed && imeList.size() == 0) {
 						entryIterator.remove();
 					}
 				}
@@ -463,38 +463,33 @@ public class DRCEventBus implements IEventBus, ICopyable {
 
 	/**
 	 * Unregisters a {@link MethodEntry} from the {@link DRCEventBus}. The event bus has to be updated with {@link DRCEventBus#bind()} for this to take effect.
+	 * Only unregisters the first occurrence of the specified method entry.
 	 * @param methodEntry {@link MethodEntry} to unregister
 	 */
 	public final void unregister(MethodEntry methodEntry) {
-		InternalMethodEntry toRemove = null;
-		for(InternalMethodEntry ime : this.subclassListeners) {
-			if(ime.method.equals(methodEntry.getMethod())) {
-				toRemove = ime;
-				break;
+		Method method = methodEntry.getMethod();
+		Iterator<Entry<Class<? extends Event>, List<InternalMethodEntry>>> entryIterator = this.registeredEntries.entrySet().iterator();
+		while(entryIterator.hasNext()) {
+			Entry<Class<? extends Event>, List<InternalMethodEntry>> entry = entryIterator.next();
+			Class<? extends Event> eventClassGroup = entry.getKey();
+			List<InternalMethodEntry> imeList = entry.getValue();
+			Iterator<InternalMethodEntry> imeIterator = imeList.iterator();
+			while(imeIterator.hasNext()) {
+				InternalMethodEntry ime = imeIterator.next();
+				if(ime.method.equals(method) && ime.instance == methodEntry.getListener()) {
+					imeIterator.remove();
+					if(ime.method.getParameterTypes()[0].equals(eventClassGroup)) {
+						this.methodCount--;
+						if(imeList.size() == 0) {
+							entryIterator.remove();
+						}
+						break;
+					}
+				}
 			}
-		}
-		if(toRemove != null) {
-			this.subclassListeners.remove(toRemove);
-		}
-		List<InternalMethodEntry> lle = this.registeredEntries.get(methodEntry.getEventClass());
-		if(lle == null) {
-			this.registeredEntries.remove(methodEntry.getEventClass());
-			return;
-		}
-		toRemove = null;
-		for(InternalMethodEntry le : lle) {
-			if(le.method.equals(methodEntry.getMethod())) {
-				toRemove = le;
-				break;
+			if(imeList.size() == 0) {
+				entryIterator.remove();
 			}
-		}
-		if(toRemove != null) {
-			lle.remove(toRemove);
-			this.methodCount--;
-		}
-		if(lle.size() == 0) {
-			this.registeredEntries.remove(methodEntry.getEventClass());
-			return;
 		}
 	}
 
@@ -610,33 +605,52 @@ public class DRCEventBus implements IEventBus, ICopyable {
 				List<InternalMethodEntry> entryList = mapEntry.getValue();
 				for(InternalMethodEntry entry : entryList) {
 					if(entry.handlerAnnotation.acceptSubclasses()) {
-						//InternalMethodEntry internalEntry = new InternalMethodEntry(entry.getListener(), entry.getMethod(), entry.getHandlerAnnotation(), entry.getFilter(), entry.getEventClass());
-
-						//Add to subclass listeners list
-						boolean containsEntry = false;
-						for(InternalMethodEntry ime : this.subclassListeners) {
-							if(ime.method.equals(entry.method)) {
-								containsEntry = true;
-								break;
+						//Calculate the correct maximum amount of subclass listeners
+						int maxContainedEntriesSubclassList = 0;
+						for(Entry<Class<? extends Event>, List<InternalMethodEntry>> regEntry : this.registeredEntries.entrySet()) {
+							for(InternalMethodEntry regMethodEntry : regEntry.getValue()) {
+								if(regMethodEntry.eventClass.equals(regEntry.getKey()) && regMethodEntry.method.equals(entry.method) && regMethodEntry.instance == entry.instance) {
+									maxContainedEntriesSubclassList++;
+								}
 							}
 						}
-						if(!containsEntry) {
+
+						//Add to subclass listeners list
+						int containedEntries = 0;
+						for(InternalMethodEntry ime : this.subclassListeners) {
+							if(ime.method.equals(entry.method) && ime.instance == entry.instance) {
+								containedEntries++;
+							}
+						}
+						if(containedEntries < maxContainedEntriesSubclassList) {
 							this.subclassListeners.add(entry);
 						}
 
 						//Check if any event subclasses are already available and can be registered in the normal registeredEntries map
 						for(Class<? extends Event> eventClass : this.registeredEntries.keySet()) {
-							if(entry.eventClass.isAssignableFrom(eventClass)) {
-								List<InternalMethodEntry> imeList = this.registeredEntries.get(eventClass);
-								containsEntry = false;
-								for(InternalMethodEntry ime : imeList) {
-									if(ime.method.equals(entry.method)) {
-										containsEntry = true;
-										break;
+							if(entry.eventClass.isAssignableFrom(eventClass) && !entry.eventClass.equals(eventClass)) {
+								//Calculate the maximum correct amount of static subclass listeners
+								int maxContainedEntries = 0;
+								for(Entry<Class<? extends Event>, List<InternalMethodEntry>> regEntry : this.registeredEntries.entrySet()) {
+									for(InternalMethodEntry regMethodEntry : regEntry.getValue()) {
+										if(regEntry.getKey().equals(regMethodEntry.eventClass) && regMethodEntry.method.equals(entry.method) && regMethodEntry.instance == entry.instance) {
+											maxContainedEntries++;
+										}
 									}
 								}
-								if(!containsEntry) {
-									imeList.add(entry);
+
+								//Add to static lists
+								List<InternalMethodEntry> imeList = this.registeredEntries.get(eventClass);
+								containedEntries = 0;
+								for(InternalMethodEntry ime : imeList) {
+									if(!eventClass.equals(ime.eventClass) && ime.method.equals(entry.method) && ime.instance == entry.instance) {
+										containedEntries++;
+									}
+								}
+								if(containedEntries < maxContainedEntries) {
+									if(imeList != entryList) {
+										imeList.add(entry);
+									}
 								}
 							}
 						}

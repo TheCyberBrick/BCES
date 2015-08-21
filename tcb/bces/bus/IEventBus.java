@@ -16,7 +16,8 @@ public interface IEventBus {
 	public void register(IListener listener);
 	
 	/**
-	 * Unregisters an {@link IListener} from this bus
+	 * Unregisters an {@link IListener} from this bus.
+	 * Only unregisters the first occurrence of the specified listener.
 	 * @param listener {@link IListener} to unregister
 	 */
 	public void unregister(IListener listener);

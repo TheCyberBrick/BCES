@@ -1,5 +1,6 @@
 package tcb.bces.bus;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -95,15 +96,19 @@ public class DRCExpander<B extends DRCEventBus> implements IEventBus {
 
 	/**
 	 * Unregisters an {@link IListener} from the {@link DRCExpander}. The event bus has to be updated with {@link DRCExpander#bind()} for this to take effect.
+	 * Only unregisters the first occurrence of the specified listener.
 	 * @param listener {@link IListener} to unregister
 	 */
 	@Override
 	public final void unregister(IListener listener) {
-		Iterator<MethodEntry> it = this.registeredMethodEntries.iterator();
-		while(it.hasNext()) {
-			MethodEntry entry = it.next();
-			if(entry.getListener() == listener) {
-				it.remove();
+		for(Method method : listener.getClass().getDeclaredMethods()) {
+			Iterator<MethodEntry> it = this.registeredMethodEntries.iterator();
+			while(it.hasNext()) {
+				MethodEntry entry = it.next();
+				if(entry.getMethod().equals(method) && entry.getListener() == listener) {
+					it.remove();
+					break;
+				}
 			}
 		}
 	}
@@ -118,6 +123,7 @@ public class DRCExpander<B extends DRCEventBus> implements IEventBus {
 
 	/**
 	 * Unregisters a {@link MethodEntry} from the {@link DRCExpander}. The event bus has to be updated with {@link DRCExpander#bind()} for this to take effect.
+	 * Only unregisters the first occurrence of the specified method entry.
 	 * @param methodEntry {@link MethodEntry} to unregister
 	 */
 	public final void unregister(MethodEntry entry) {
