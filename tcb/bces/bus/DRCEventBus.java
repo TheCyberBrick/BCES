@@ -1,7 +1,5 @@
 package tcb.bces.bus;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -33,6 +31,8 @@ import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TypeInsnNode;
 import org.objectweb.asm.tree.VarInsnNode;
 
+import tcb.bces.BytecodeHelper;
+import tcb.bces.InstrumentationClassLoader;
 import tcb.bces.bus.compilation.CompilationNode;
 import tcb.bces.bus.compilation.Dispatcher;
 import tcb.bces.bus.compilation.DispatcherException;
@@ -62,7 +62,7 @@ import tcb.bces.listener.filter.IFilter;
  * @author TCB
  *
  */
-public class DRCEventBus implements IEventBus, ICopyable {
+public class DRCEventBus implements IEventBus, ICopyable, ICompilableBus {
 	/**
 	 * The internal private dispatcher implementation
 	 */
@@ -671,47 +671,27 @@ public class DRCEventBus implements IEventBus, ICopyable {
 			Collections.sort(this.subclassListeners, prioritySorter);
 
 			//Instrumentation classloader
-			ClassLoader instrumentationClassLoader = new ClassLoader() {
+			InstrumentationClassLoader<Dispatcher> instrumentationClassLoader = new InstrumentationClassLoader<Dispatcher>(DRCEventBus.this.dispatcherClass) {
 				@SuppressWarnings("unchecked")
 				@Override
-				protected Class<?> loadClass(String paramString, boolean paramBoolean) throws ClassNotFoundException {
-					if(paramString.equals(DRCEventBus.this.dispatcherClass.getName())) {
-						try {
-							InputStream is = DRCEventBus.class.getResourceAsStream("/" + paramString.replace('.', '/') + ".class");
-							ByteArrayOutputStream baos = new ByteArrayOutputStream();
-							int readBytes = 0;
-							byte[] buffer = new byte[1024];
-							while((readBytes = is.read(buffer)) >= 0) {
-								baos.write(buffer, 0, readBytes);
-							}
-							byte[] bytecode = baos.toByteArray();
-							ClassReader classReader = new ClassReader(bytecode);
-							ClassNode classNode = new ClassNode();
-							classReader.accept(classNode, ClassReader.SKIP_FRAMES);
-							CompilationNode mainNode = new CompilationNode(DRCEventBus.this.toString());
-							DRCEventBus.this.compilationNode.addChild(mainNode);
-							for(MethodNode methodNode : (List<MethodNode>) classNode.methods) {
-								if(methodNode.name.equals(DISPATCHER_DISPATCH_EVENT_INTERNAL)) {
-									instrumentDispatcher(methodNode, true, mainNode);
-								}
-							}
-							DRCEventBus.this.compilationNode = mainNode;
-							ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
-							classNode.accept(classWriter);
-							bytecode = classWriter.toByteArray();
-							return this.defineClass(paramString, bytecode, 0, bytecode.length);
-						} catch(Exception ex) {
-							throw new DispatcherException("Could not compile dispatching methods", ex);
+				protected byte[] instrument(byte[] bytecode) {
+					ClassReader classReader = new ClassReader(bytecode);
+					ClassNode classNode = new ClassNode();
+					classReader.accept(classNode, ClassReader.SKIP_FRAMES);
+					CompilationNode mainNode = new CompilationNode(DRCEventBus.this.toString());
+					DRCEventBus.this.compilationNode.addChild(mainNode);
+					for(MethodNode methodNode : (List<MethodNode>) classNode.methods) {
+						if(methodNode.name.equals(DISPATCHER_DISPATCH_EVENT_INTERNAL)) {
+							instrumentDispatcher(methodNode, true, mainNode);
 						}
 					}
-					return super.loadClass(paramString, paramBoolean);
+					DRCEventBus.this.compilationNode = mainNode;
+					ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
+					classNode.accept(classWriter);
+					return classWriter.toByteArray();
 				}
 			};
-			Class<?> dispatcherClass = instrumentationClassLoader.loadClass(this.dispatcherClass.getName());
-			Constructor<?> ctor = dispatcherClass.getDeclaredConstructor();
-			ctor.setAccessible(true);
-			Dispatcher dispatcher = (Dispatcher) ctor.newInstance();
-			ctor.setAccessible(false);
+			Dispatcher dispatcher = instrumentationClassLoader.createInstance(null);
 			dispatcher.init(this.listenerArray, this.filterArray);
 			return dispatcher;
 		} catch(Exception ex) {
@@ -773,7 +753,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 		instructionSet.add(new VarInsnNode(Opcodes.ISTORE, containedVarID));
 
 		for(Entry<Class<? extends Event>, List<InternalMethodEntry>> e : this.registeredEntries.entrySet()) {
-			String eventClassGroup = TypeConversions.getClassType(e.getKey());
+			String eventClassGroup = BytecodeHelper.getClassType(e.getKey());
 
 			CompilationNode eventClassNode = new CompilationNode(e.getKey().getName());
 			eventNode.addChild(eventClassNode);
@@ -831,7 +811,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 			for(InternalMethodEntry listenerEntry : e.getValue()) {
 				//Instrument dispatcher for listener
 				this.instrumentSingleDispatcher(instructionSet, listenerEntry, 
-						TypeConversions.getClassType(listenerEntry.eventClass), cancellable, exitNode, 
+						BytecodeHelper.getClassType(listenerEntry.eventClass), cancellable, exitNode, 
 						classCompareFailLabelNode, staticListenersNode);
 			}
 
@@ -852,7 +832,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 
 			//Instrument dispatcher for listener
 			this.instrumentSingleDispatcher(instructionSet, listenerEntry,
-					TypeConversions.getClassType(listenerEntry.eventClass), cancellable, exitNode, 
+					BytecodeHelper.getClassType(listenerEntry.eventClass), cancellable, exitNode, 
 					classInstanceofFailLabelNode, dynamicListenersNode);
 
 			//Jumped to if instanceof check fails
@@ -887,11 +867,11 @@ public class DRCEventBus implements IEventBus, ICopyable {
 	 */
 	private final synchronized void instrumentSingleDispatcher(ArrayList<AbstractInsnNode> instructionSet, InternalMethodEntry listenerEntry, 
 			String eventClassName, boolean cancellable, LabelNode exitLabelNode, LabelNode failailLabelNode, CompilationNode compilationNode) {
-		String className = TypeConversions.getClassType(this.dispatcherClass);
-		String fieldType = TypeConversions.getArrayClassParamType(IListener.class);
-		String listenerClassName = TypeConversions.getClassType(listenerEntry.instance.getClass());
+		String className = BytecodeHelper.getClassType(this.dispatcherClass);
+		String fieldType = BytecodeHelper.getArrayClassParamType(IListener.class);
+		String listenerClassName = BytecodeHelper.getClassType(listenerEntry.instance.getClass());
 		String listenerMethodName = listenerEntry.methodName;
-		String listenerMethodType = TypeConversions.getListenerMethodType(eventClassName);
+		String listenerMethodType = BytecodeHelper.getListenerMethodType(eventClassName);
 		int listenerIndex = this.indexLookup.get(listenerEntry.instance);
 
 		CompilationNode listenerNode = new CompilationNode(listenerEntry.instance.getClass().getName() + "#" + listenerEntry.methodName);
@@ -911,42 +891,15 @@ public class DRCEventBus implements IEventBus, ICopyable {
 		if(listenerEntry.filter != null) {
 			entryFailLabelNode = new LabelNode();
 			int filterIndex = this.filterIndexLookup.get(listenerEntry);
-			String filterClassName = TypeConversions.getClassType(listenerEntry.filter.getClass());
-			String filterFieldType = TypeConversions.getArrayClassParamType(IFilter.class);
-			String filterMethodType = TypeConversions.getFilterMethodType();
+			String filterClassName = BytecodeHelper.getClassType(listenerEntry.filter.getClass());
+			String filterFieldType = BytecodeHelper.getArrayClassParamType(IFilter.class);
+			String filterMethodType = BytecodeHelper.getFilterMethodType();
 
 			//get filter array
 			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
 			instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, DISPATCHER_FILTER_ARRAY, filterFieldType));
 			//push index onto stack
-			if(filterIndex <= 5) {
-				switch(filterIndex) {
-				case 0:
-					instructionSet.add(new InsnNode(Opcodes.ICONST_0));
-					break;
-				case 1:
-					instructionSet.add(new InsnNode(Opcodes.ICONST_1));
-					break;
-				case 2:
-					instructionSet.add(new InsnNode(Opcodes.ICONST_2));
-					break;
-				case 3:
-					instructionSet.add(new InsnNode(Opcodes.ICONST_3));
-					break;
-				case 4:
-					instructionSet.add(new InsnNode(Opcodes.ICONST_4));
-					break;
-				case 5:
-					instructionSet.add(new InsnNode(Opcodes.ICONST_5));
-					break;
-				}
-			} else if(filterIndex <= Byte.MAX_VALUE) {
-				instructionSet.add(new IntInsnNode(Opcodes.BIPUSH, filterIndex));
-			} else if(filterIndex <= Short.MAX_VALUE) {
-				instructionSet.add(new IntInsnNode(Opcodes.SIPUSH, filterIndex));
-			} else {
-				instructionSet.add(new LdcInsnNode(filterIndex));
-			}
+			instructionSet.add(BytecodeHelper.getOptimizedIndex(filterIndex));
 			//load filter from array and cast filter type
 			instructionSet.add(new InsnNode(Opcodes.AALOAD));
 			instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, filterClassName));
@@ -963,7 +916,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 			LabelNode instanceofEventCancellableFailLabel = new LabelNode();
 			//event instanceof EventCancellable
 			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 1));
-			instructionSet.add(new TypeInsnNode(Opcodes.INSTANCEOF, TypeConversions.getClassType(EventCancellable.class)));
+			instructionSet.add(new TypeInsnNode(Opcodes.INSTANCEOF, BytecodeHelper.getClassType(EventCancellable.class)));
 
 			//if(event instanceof EventCancellable == false) -> jump to instanceofEventCancellableFailLabel
 			instructionSet.add(new JumpInsnNode(Opcodes.IFEQ, instanceofEventCancellableFailLabel));
@@ -987,34 +940,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 			instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
 			instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, DISPATCHER_LISTENER_ARRAY, fieldType));
 			//push index onto stack
-			if(listenerIndex <= 5) {
-				switch(listenerIndex) {
-				case 0:
-					instructionSet.add(new InsnNode(Opcodes.ICONST_0));
-					break;
-				case 1:
-					instructionSet.add(new InsnNode(Opcodes.ICONST_1));
-					break;
-				case 2:
-					instructionSet.add(new InsnNode(Opcodes.ICONST_2));
-					break;
-				case 3:
-					instructionSet.add(new InsnNode(Opcodes.ICONST_3));
-					break;
-				case 4:
-					instructionSet.add(new InsnNode(Opcodes.ICONST_4));
-					break;
-				case 5:
-					instructionSet.add(new InsnNode(Opcodes.ICONST_5));
-					break;
-				}
-			} else if(listenerIndex <= Byte.MAX_VALUE) {
-				instructionSet.add(new IntInsnNode(Opcodes.BIPUSH, listenerIndex));
-			} else if(listenerIndex <= Short.MAX_VALUE) {
-				instructionSet.add(new IntInsnNode(Opcodes.SIPUSH, listenerIndex));
-			} else {
-				instructionSet.add(new LdcInsnNode(listenerIndex));
-			}
+			instructionSet.add(BytecodeHelper.getOptimizedIndex(listenerIndex));
 			//load listener from array and cast listener type
 			instructionSet.add(new InsnNode(Opcodes.AALOAD));
 			instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, listenerClassName));
@@ -1031,34 +957,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 		instructionSet.add(new IntInsnNode(Opcodes.ALOAD, 0));
 		instructionSet.add(new FieldInsnNode(Opcodes.GETFIELD, className, DISPATCHER_LISTENER_ARRAY, fieldType));
 		//push index onto stack
-		if(listenerIndex <= 5) {
-			switch(listenerIndex) {
-			case 0:
-				instructionSet.add(new InsnNode(Opcodes.ICONST_0));
-				break;
-			case 1:
-				instructionSet.add(new InsnNode(Opcodes.ICONST_1));
-				break;
-			case 2:
-				instructionSet.add(new InsnNode(Opcodes.ICONST_2));
-				break;
-			case 3:
-				instructionSet.add(new InsnNode(Opcodes.ICONST_3));
-				break;
-			case 4:
-				instructionSet.add(new InsnNode(Opcodes.ICONST_4));
-				break;
-			case 5:
-				instructionSet.add(new InsnNode(Opcodes.ICONST_5));
-				break;
-			}
-		} else if(listenerIndex <= Byte.MAX_VALUE) {
-			instructionSet.add(new IntInsnNode(Opcodes.BIPUSH, listenerIndex));
-		} else if(listenerIndex <= Short.MAX_VALUE) {
-			instructionSet.add(new IntInsnNode(Opcodes.SIPUSH, listenerIndex));
-		} else {
-			instructionSet.add(new LdcInsnNode(listenerIndex));
-		}
+		instructionSet.add(BytecodeHelper.getOptimizedIndex(listenerIndex));
 		//load listener from array and cast listener type
 		instructionSet.add(new InsnNode(Opcodes.AALOAD));
 		instructionSet.add(new TypeInsnNode(Opcodes.CHECKCAST, listenerClassName));
@@ -1104,6 +1003,7 @@ public class DRCEventBus implements IEventBus, ICopyable {
 	 * For optimal performance this method should be called after all listeners have been
 	 * registered.
 	 */
+	@Override
 	public void bind() {
 		this.dispatcherImplInstance = (Dispatcher)this.compileDispatcher();
 	}

@@ -5,7 +5,7 @@ import tcb.bces.event.Event;
 import tcb.bces.listener.Subscribe;
 
 /**
- * An abstract filter class that implements {@link IFilter}.
+ * An abstract filter class
  * 
  * @author TCB
  *

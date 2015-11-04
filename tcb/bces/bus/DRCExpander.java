@@ -23,7 +23,7 @@ import tcb.bces.listener.SubscriptionException;
  * @author TCB
  *
  */
-public class DRCExpander<B extends DRCEventBus> implements IEventBus {
+public class DRCExpander<B extends DRCEventBus> implements IEventBus, ICompilableBus {
 	private final ArrayList<B> busCollection = new ArrayList<B>();
 	private final HashMap<Class<? extends Event>, List<B>> busMap = new HashMap<Class<? extends Event>, List<B>>();
 	private final List<MethodEntry> registeredMethodEntries = new ArrayList<MethodEntry>();
@@ -135,6 +135,7 @@ public class DRCExpander<B extends DRCEventBus> implements IEventBus {
 	 * For optimal performance this method should be called after all listeners have been
 	 * registered.
 	 */
+	@Override
 	public final void bind() {
 		this.busCollection.clear();
 		this.busMap.clear();

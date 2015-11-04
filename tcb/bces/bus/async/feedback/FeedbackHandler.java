@@ -3,7 +3,7 @@ package tcb.bces.bus.async.feedback;
 import tcb.bces.event.Event;
 
 /**
- * An abstract feedback handler class that implements {@link IFeedbackHandler}.
+ * An abstract feedback handler class
  * 
  * @author TCB
  *

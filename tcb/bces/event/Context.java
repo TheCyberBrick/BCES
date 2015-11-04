@@ -3,7 +3,13 @@ package tcb.bces.event;
 import java.util.ArrayList;
 import java.util.List;
 
-public abstract class Context {
+/**
+ * An abstract context class
+ * 
+ * @author TCB
+ *
+ */
+public abstract class Context implements IContext {
 	private Context parent = null;
 	
 	/**
@@ -28,7 +34,7 @@ public abstract class Context {
 	 * @return matching context
 	 */
 	@SuppressWarnings("unchecked")
-	public final <T extends Context> T getContext(Class<T> type) {
+	public final <T extends IContext> T getContext(Class<T> type) {
 		Context currentContext = this;
 		while(currentContext != null) {
 			if(currentContext.getClass() == type) return (T) currentContext;
@@ -43,7 +49,7 @@ public abstract class Context {
 	 * @return list of all matching contexts
 	 */
 	@SuppressWarnings("unchecked")
-	public final <T extends Context> List<T> getContexts(Class<T> type) {
+	public final <T extends IContext> List<T> getContexts(Class<T> type) {
 		List<T> foundContexts = new ArrayList<T>();
 		Context currentContext = this;
 		while(currentContext != null) {
