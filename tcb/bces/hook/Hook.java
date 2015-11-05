@@ -9,6 +9,7 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.IntInsnNode;
@@ -31,6 +32,7 @@ public final class Hook {
 	private Hook() { }
 
 	private static final String METHOD_NAME_INVOKE = "invoke";
+	private static final String FIELD_INSTANCE = "instance";
 
 	public static class InvalidArgumentsException extends RuntimeException {
 		private static final long serialVersionUID = -9170715843757768051L;
@@ -38,39 +40,58 @@ public final class Hook {
 		private InvalidArgumentsException(Throwable ex) {
 			super("Invalid arguments", ex);
 		}
-	}
 
-	public static abstract class HookContainer {
-		protected Hook hook;
-		public abstract Object invoke(Object... args);
-		public Object getInstance() {
-			return this.hook.instance;
+		private InvalidArgumentsException() {
+			super("Invalid arguments");
 		}
 	}
 
-	static final class HookContainerImpl extends HookContainer {
-		private HookContainerImpl(Hook hook) {
-			this.hook = hook;
+	public static class HookInvokerException extends RuntimeException {
+		private static final long serialVersionUID = 2694201723810916611L;
+
+		public HookInvokerException(String msg) {
+			super(msg);
 		}
+		public HookInvokerException(String msg, Exception cause) {
+			super(msg, cause);
+		}
+	}
+
+	private static final class HookInvokerImpl extends HookInvoker {
 		@Override
 		public Object invoke(Object... args) {
-			@SuppressWarnings("unused")
-			Object instance = this.getInstance();
 			return null;
 		}
 	}
 
-	private HookContainer container;
-	private Object instance;
+	private HookInvoker invoker;
 
 	public static final class HookBuilder {
+		private static final String HOOK_INVOKER_INVOKE = "invoke";
+
 		private final Class<?> clazz;
 		private final Method method;
 		private boolean staticHook = false;
+		private Class<? extends HookInvoker> hookInvoker = HookInvokerImpl.class;
 
 		private HookBuilder(Class<?> clazz, Method method) {
 			this.clazz = clazz;
 			this.method = method;
+		}
+
+		/**
+		 * Sets the hook invoker class
+		 * 
+		 * @param invoker Hook invoker class
+		 * @return
+		 */
+		public HookBuilder setHookInvoker(Class<? extends HookInvoker> invoker) {
+			if(invoker == null) {
+				this.hookInvoker = HookInvokerImpl.class;
+				return this;
+			}
+			this.hookInvoker = invoker;
+			return this;
 		}
 
 		/**
@@ -101,7 +122,7 @@ public final class Hook {
 		 */
 		public Hook compile() throws Exception {
 			//Instrumentation classloader
-			InstrumentationClassLoader<HookContainer> instrumentationClassLoader = new InstrumentationClassLoader<HookContainer>(HookContainerImpl.class) {
+			InstrumentationClassLoader<HookInvoker> instrumentationClassLoader = new InstrumentationClassLoader<HookInvoker>(this.hookInvoker) {
 				@SuppressWarnings("unchecked")
 				@Override
 				protected byte[] instrument(byte[] bytecode) {
@@ -114,51 +135,78 @@ public final class Hook {
 								InsnList methodInstructionSet = methodNode.instructions;
 								Iterator<AbstractInsnNode> it = methodInstructionSet.iterator();
 								AbstractInsnNode insn;
+
+								AbstractInsnNode implementationNode = null;
+								boolean isNodeInvoker = false;
 								while((insn = it.next()) != null && it.hasNext()) {
-									boolean isReturn = (insn.getOpcode() == Opcodes.IRETURN || 
+									boolean isReturn = HookBuilder.this.hookInvoker == HookInvokerImpl.class && 
+											(insn.getOpcode() == Opcodes.IRETURN || 
 											insn.getOpcode() == Opcodes.LRETURN ||
 											insn.getOpcode() == Opcodes.RETURN ||
 											insn.getOpcode() == Opcodes.ARETURN ||
 											insn.getOpcode() == Opcodes.DRETURN ||
 											insn.getOpcode() == Opcodes.FRETURN);
-									if(isReturn) {
-										String className = BytecodeHelper.getClassType(HookBuilder.this.clazz);
-
-										if(!HookBuilder.this.staticHook) {
-											methodInstructionSet.insertBefore(insn, new IntInsnNode(Opcodes.ALOAD, 2));
-											methodInstructionSet.insertBefore(insn, new TypeInsnNode(Opcodes.CHECKCAST, className));
-										}
-
-										Method method = HookBuilder.this.method;
-										Class<?>[] methodParams = method.getParameterTypes();
-										for(int i = 0; i < methodParams.length; i++) {
-											methodInstructionSet.insertBefore(insn, new IntInsnNode(Opcodes.ALOAD, 1));
-											methodInstructionSet.insertBefore(insn, BytecodeHelper.getOptimizedIndex(i));
-											methodInstructionSet.insertBefore(insn, new InsnNode(Opcodes.AALOAD));
-											Class<?> type = methodParams[i];
-											if(!type.isPrimitive()) {
-												methodInstructionSet.insertBefore(insn, new TypeInsnNode(Opcodes.CHECKCAST, BytecodeHelper.getClassType(methodParams[i])));
-											} else {
-												AbstractInsnNode[] converter = BytecodeHelper.getPrimitivesArgumentConverter(type);
-												methodInstructionSet.insertBefore(insn, converter[0]);
-												methodInstructionSet.insertBefore(insn, converter[1]);
-											}
-										}
-
-										methodInstructionSet.insertBefore(insn, new MethodInsnNode(HookBuilder.this.staticHook ? Opcodes.INVOKESTATIC : Opcodes.INVOKEVIRTUAL, className, HookBuilder.this.method.getName(), BytecodeHelper.getMethodType(method), false));
-
-										if(method.getReturnType() != void.class) {
-											if(method.getReturnType().isPrimitive()) {
-												methodInstructionSet.insertBefore(insn, BytecodeHelper.getPrimitivesReturnConverter(method.getReturnType()));
-											}
-
-											methodInstructionSet.insertBefore(insn, new InsnNode(Opcodes.ARETURN));
-											it.remove();
-										}
-
-										break methodNodeLoop;
+									boolean isInvokerMethod = HookBuilder.this.hookInvoker != HookInvokerImpl.class && insn.getOpcode() == Opcodes.INVOKESTATIC && ((MethodInsnNode)insn).name.equals(HOOK_INVOKER_INVOKE) && ((MethodInsnNode)insn).owner.equals(HookInvoker.class.getName().replace(".", "/"));
+									//Only implement first invoker, throw an error if there are multiple implementations
+									if(isInvokerMethod && implementationNode != null) {
+										throw new HookInvokerException("The invoking implementation HookInvoker#invoke() can only be used once per method");
+									}
+									if(isReturn || isInvokerMethod) {
+										isNodeInvoker = isInvokerMethod;
+										implementationNode = insn;
 									}
 								}
+
+								//No implementation or return node
+								if(implementationNode == null) {
+									return bytecode;
+								}
+
+								String className = BytecodeHelper.getClassType(HookBuilder.this.clazz);
+
+								if(!HookBuilder.this.staticHook) {
+									//Load instance
+									methodInstructionSet.insertBefore(implementationNode, new IntInsnNode(Opcodes.ALOAD, 0));
+									methodInstructionSet.insertBefore(implementationNode, new FieldInsnNode(Opcodes.GETFIELD, BytecodeHelper.getClassType(HookInvoker.class), FIELD_INSTANCE, "Ljava/lang/Object;"));
+									methodInstructionSet.insertBefore(implementationNode, new TypeInsnNode(Opcodes.CHECKCAST, className));
+								}
+
+								Method method = HookBuilder.this.method;
+								Class<?>[] methodParams = method.getParameterTypes();
+								for(int i = 0; i < methodParams.length; i++) {
+									//Push argument onto stack
+									methodInstructionSet.insertBefore(implementationNode, new IntInsnNode(Opcodes.ALOAD, 1));
+									methodInstructionSet.insertBefore(implementationNode, BytecodeHelper.getOptimizedIndex(i));
+									methodInstructionSet.insertBefore(implementationNode, new InsnNode(Opcodes.AALOAD));
+									Class<?> type = methodParams[i];
+									//Cast argument or convert primitives
+									if(!type.isPrimitive()) {
+										methodInstructionSet.insertBefore(implementationNode, new TypeInsnNode(Opcodes.CHECKCAST, BytecodeHelper.getClassType(methodParams[i])));
+									} else {
+										AbstractInsnNode[] converter = BytecodeHelper.getPrimitivesArgumentConverter(type);
+										methodInstructionSet.insertBefore(implementationNode, converter[0]);
+										methodInstructionSet.insertBefore(implementationNode, converter[1]);
+									}
+								}
+
+								//Invoke
+								methodInstructionSet.insertBefore(implementationNode, new MethodInsnNode(HookBuilder.this.staticHook ? Opcodes.INVOKESTATIC : Opcodes.INVOKEVIRTUAL, className, HookBuilder.this.method.getName(), BytecodeHelper.getMethodType(method), false));
+
+								//Convert and return if required
+								if(method.getReturnType() != void.class) {
+									if(method.getReturnType().isPrimitive()) {
+										methodInstructionSet.insertBefore(implementationNode, BytecodeHelper.getPrimitivesReturnConverter(method.getReturnType()));
+									}
+
+									methodInstructionSet.insertBefore(implementationNode, new InsnNode(Opcodes.ARETURN));
+									it.remove();
+								}
+
+								if(isNodeInvoker) {
+									methodInstructionSet.remove(implementationNode);
+								}
+
+								break methodNodeLoop;
 							}
 						}
 					ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
@@ -167,8 +215,9 @@ public final class Hook {
 				}
 			};
 			Hook hook = new Hook();
-			HookContainer container = instrumentationClassLoader.createInstance(new Class[]{Hook.class}, hook);
-			hook.container = container;
+			HookInvoker invoker = instrumentationClassLoader.createInstance(null);
+			invoker.init();
+			hook.invoker = invoker;
 			return hook;
 		}
 
@@ -273,6 +322,56 @@ public final class Hook {
 	}
 
 	/**
+	 * Creates and compiles the hook and catches any errors
+	 * 
+	 * @param invoker Hook invoker
+	 * @param staticModifier True for static hooks
+	 * @param clazz Class
+	 * @param methodName Method name
+	 * @param params Method parameters
+	 * @return Returns null if failed
+	 */
+	public static Hook createAndCompileInvokerSafe(Class<? extends HookInvoker> invoker, boolean staticModifier, Class<?> clazz, String methodName, Class<?>... params) {
+		try {
+			return create(clazz, methodName, params).setHookInvoker(invoker).setStatic(staticModifier).compile();
+		} catch (Throwable e) { }
+		return null;
+	}
+
+	/**
+	 * Creates and compiles the hook and catches any errors
+	 * 
+	 * @param invoker Hook invoker
+	 * @param instance Instance (use null for a static hook)
+	 * @param clazz Class
+	 * @param methodName Method name
+	 * @param params Method parameters
+	 * @return Returns null if failed
+	 */
+	public static Hook createAndCompileInvokerSafe(Class<? extends HookInvoker> invoker, Object instance, Class<?> clazz, String methodName, Class<?>... params) {
+		try {
+			return create(clazz, methodName, params).setHookInvoker(invoker).setStatic(instance == null).compile().setInstance(instance);
+		} catch (Throwable e) { }
+		return null;
+	}
+
+	/**
+	 * Creates and compiles the static hook and catches any errors
+	 * 
+	 * @param invoker Hook invoker
+	 * @param clazz Class
+	 * @param methodName Method name
+	 * @param params Method parameters
+	 * @return Returns null if failed
+	 */
+	public static Hook createAndCompileInvokerSafe(Class<? extends HookInvoker> invoker, Class<?> clazz, String methodName, Class<?>... params) {
+		try {
+			return create(clazz, methodName, params).setHookInvoker(invoker).setStatic(true).compile();
+		} catch (Throwable e) { }
+		return null;
+	}
+
+	/**
 	 * Invokes the method. Make sure you explicitly cast all arguments to
 	 * avoid any ambiguities
 	 * 
@@ -280,11 +379,13 @@ public final class Hook {
 	 */
 	public Object invoke(Object... args) {
 		try {
-			return this.container.invoke(args);
+			return this.invoker.invoke(args);
+		} catch(NullPointerException ex) {
+			throw new NullPointerException("Instance is null");
 		} catch(IncompatibleClassChangeError ex) {
 			throw ex;
 		} catch(Throwable ex) {
-			throw new InvalidArgumentsException(ex);
+			throw new InvalidArgumentsException();
 		}
 	}
 
@@ -324,7 +425,7 @@ public final class Hook {
 	 * @return
 	 */
 	public Hook setInstance(Object obj) {
-		this.instance = obj;
+		this.invoker.instance = obj;
 		return this;
 	}
 }

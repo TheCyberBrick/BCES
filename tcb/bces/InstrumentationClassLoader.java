@@ -3,7 +3,6 @@ package tcb.bces;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
 
 /**
  * Used to load and instrument classes.
@@ -18,16 +17,18 @@ import java.lang.reflect.InvocationTargetException;
 public abstract class InstrumentationClassLoader<T> extends ClassLoader {
 	public final Class<? extends T> instrumentedClass;
 
+	private Exception loadingException = null;
+
 	/**
 	 * Used to load and instrument classes.
 	 * Note that once the class has been instrumented it can no longer be casted
 	 * to that class, unless it's done in the same class loader context. However, it 
 	 * can still be casted to it's superclass.
 	 * 
-	 * @param dispatcherClass Class to be instrumented
+	 * @param instrumentedClass Class to be instrumented
 	 */
-	public InstrumentationClassLoader(Class<? extends T> dispatcherClass) {
-		this.instrumentedClass = dispatcherClass;
+	public InstrumentationClassLoader(Class<? extends T> instrumentedClass) {
+		this.instrumentedClass = instrumentedClass;
 	}
 
 	/**
@@ -36,14 +37,13 @@ public abstract class InstrumentationClassLoader<T> extends ClassLoader {
 	 * @param paramTypes Parameter types
 	 * @param params Parameters
 	 * @return
-	 * @throws ClassNotFoundException
-	 * @throws NoSuchMethodException
-	 * @throws InvocationTargetException
-	 * @throws IllegalAccessException
-	 * @throws InstantiationException
+	 * @throws Exception 
 	 */
-	public T createInstance(Class<?>[] paramTypes, Object... params) throws ClassNotFoundException, NoSuchMethodException, InvocationTargetException, IllegalAccessException, InstantiationException {
+	public T createInstance(Class<?>[] paramTypes, Object... params) throws Exception {
 		Class<? extends T> dispatcherClass = this.loadClass();
+		if(this.loadingException != null) {
+			throw this.loadingException;
+		}
 		Constructor<? extends T> ctor = dispatcherClass.getDeclaredConstructor(paramTypes);
 		ctor.setAccessible(true);
 		T instance = ctor.newInstance(params);
@@ -74,7 +74,7 @@ public abstract class InstrumentationClassLoader<T> extends ClassLoader {
 	protected final Class<?extends T> loadClass(String paramString, boolean paramBoolean) throws ClassNotFoundException {
 		if(paramString.equals(this.instrumentedClass.getName())) {
 			try {
-				InputStream is = InstrumentationClassLoader.class.getResourceAsStream("/" + paramString.replace('.', '/') + ".class");
+				InputStream is = this.instrumentedClass.getResourceAsStream("/" + paramString.replace('.', '/') + ".class");
 				ByteArrayOutputStream baos = new ByteArrayOutputStream();
 				int readBytes = 0;
 				byte[] buffer = new byte[1024];
@@ -85,9 +85,19 @@ public abstract class InstrumentationClassLoader<T> extends ClassLoader {
 				bytecode = this.instrument(bytecode);
 				return (Class<T>) this.defineClass(paramString, bytecode, 0, bytecode.length);
 			} catch(Exception ex) {
+				this.loadingException = ex;
 			}
 		}
 		return (Class<? extends T>) super.loadClass(paramString, paramBoolean);
+	}
+
+	/**
+	 * Returns the loading exception
+	 * 
+	 * @return
+	 */
+	public Exception getLoadingException() {
+		return this.loadingException;
 	}
 
 	/**
