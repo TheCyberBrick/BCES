@@ -64,7 +64,7 @@ public class BytecodeHelper {
 		return null;
 	}
 
-	public static AbstractInsnNode[] getPrimitivesArgumentConverter(Class<?> type) {
+	public static AbstractInsnNode[] getObject2PrimitiveConverter(Class<?> type) {
 		String classType = null;
 		String convertMethod = null;
 		String convertMethodType = null;
@@ -107,7 +107,7 @@ public class BytecodeHelper {
 		return null;
 	}
 
-	public static AbstractInsnNode getPrimitivesReturnConverter(Class<?> type) {
+	public static AbstractInsnNode getPrimitive2ObjectConverter(Class<?> type) {
 		String classType = null;
 		String convertMethod = null;
 		String convertMethodType = null;

@@ -34,18 +34,6 @@ public final class Hook {
 	private static final String METHOD_NAME_INVOKE = "invoke";
 	private static final String FIELD_INSTANCE = "instance";
 
-	public static class InvalidArgumentsException extends RuntimeException {
-		private static final long serialVersionUID = -9170715843757768051L;
-
-		private InvalidArgumentsException(Throwable ex) {
-			super("Invalid arguments", ex);
-		}
-
-		private InvalidArgumentsException() {
-			super("Invalid arguments");
-		}
-	}
-
 	public static class HookInvokerException extends RuntimeException {
 		private static final long serialVersionUID = 2694201723810916611L;
 
@@ -183,7 +171,7 @@ public final class Hook {
 									if(!type.isPrimitive()) {
 										methodInstructionSet.insertBefore(implementationNode, new TypeInsnNode(Opcodes.CHECKCAST, BytecodeHelper.getClassType(methodParams[i])));
 									} else {
-										AbstractInsnNode[] converter = BytecodeHelper.getPrimitivesArgumentConverter(type);
+										AbstractInsnNode[] converter = BytecodeHelper.getObject2PrimitiveConverter(type);
 										methodInstructionSet.insertBefore(implementationNode, converter[0]);
 										methodInstructionSet.insertBefore(implementationNode, converter[1]);
 									}
@@ -195,7 +183,7 @@ public final class Hook {
 								//Convert and return if required
 								if(method.getReturnType() != void.class) {
 									if(method.getReturnType().isPrimitive()) {
-										methodInstructionSet.insertBefore(implementationNode, BytecodeHelper.getPrimitivesReturnConverter(method.getReturnType()));
+										methodInstructionSet.insertBefore(implementationNode, BytecodeHelper.getPrimitive2ObjectConverter(method.getReturnType()));
 									}
 
 									methodInstructionSet.insertBefore(implementationNode, new InsnNode(Opcodes.ARETURN));
@@ -378,15 +366,7 @@ public final class Hook {
 	 * @param args Method arguments
 	 */
 	public Object invoke(Object... args) {
-		try {
-			return this.invoker.invoke(args);
-		} catch(NullPointerException ex) {
-			throw new NullPointerException("Instance is null");
-		} catch(IncompatibleClassChangeError ex) {
-			throw ex;
-		} catch(Throwable ex) {
-			throw new InvalidArgumentsException();
-		}
+		return this.invoker.invoke(args);
 	}
 
 	/**
