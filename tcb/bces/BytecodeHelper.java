@@ -18,12 +18,12 @@ public class BytecodeHelper {
 		return clazz.getName().replace(".", "/");
 	}
 
-	public static String getClassParamType(Class<?> clazz) {
+	public static String getClassObjectType(Class<?> clazz) {
 		return "L" + getClassType(clazz) + ";";
 	}
 
-	public static String getArrayClassParamType(Class<?> clazz) {
-		return "[" + getClassParamType(clazz);
+	public static String getArrayObjectType(Class<?> clazz) {
+		return "[" + getClassObjectType(clazz);
 	}
 
 	public static String getListenerMethodType(String eventClassName) {

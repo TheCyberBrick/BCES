@@ -1,5 +1,7 @@
 package tcb.bces.bus;
 
+import java.io.IOException;
+import java.io.OutputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -264,6 +266,11 @@ public class DRCEventBus implements IEventBus, ICopyable, ICompilableBus {
 	 * The compilation data
 	 */
 	private CompilationNode compilationNode = new CompilationNode("Compilation");
+
+	/**
+	 * The compiled dispatcher class bytes
+	 */
+	private byte[] dispatcherClassBytes;
 
 	/**
 	 * The default EventBus has a limit of {@link DRCEventBus#MAX_METHODS} listening methods. 
@@ -688,7 +695,8 @@ public class DRCEventBus implements IEventBus, ICopyable, ICompilableBus {
 					DRCEventBus.this.compilationNode = mainNode;
 					ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS);
 					classNode.accept(classWriter);
-					return classWriter.toByteArray();
+					DRCEventBus.this.dispatcherClassBytes = classWriter.toByteArray();
+					return DRCEventBus.this.dispatcherClassBytes;
 				}
 			};
 			Dispatcher dispatcher = instrumentationClassLoader.createInstance(null);
@@ -752,44 +760,44 @@ public class DRCEventBus implements IEventBus, ICopyable, ICompilableBus {
 		instructionSet.add(new InsnNode(Opcodes.ICONST_0));
 		instructionSet.add(new VarInsnNode(Opcodes.ISTORE, containedVarID));
 
+		/*
+		 * Pseudo code, runs for every listener method:
+		 * 
+		 * //Optional check, only present if subclasses are also accepted
+		 * if(event instanceof listenerArray[n].eventType) {
+		 * //Replacement for when subclasses are not accepted
+		 * if(event.getClass() == listenerArray[n].eventType) {
+		 * 
+		 *   //Optional check, only present if filter is not default IFilter class
+		 *   if(filterArray[p].filter(listenerArray[n], event) {
+		 *   
+		 *     //Optional check, only present if the compiled method with the cancellable code is used
+		 *     if(event instanceof IEventCancellable == false ||
+		 *        !((IEventCancellable)event).isCancelled()) {
+		 *        
+		 *       //Invokes the listener method
+		 *       listenerArray[n].invokeMethod(event);
+		 *       
+		 *       //Optional check, only present if the compiled method with the cancellable code is used
+		 *       if(event instanceof IEventCancellable) {
+		 *       
+		 *         //Optional check, only present if the compiled method with the cancellable code is used
+		 *         if(((IEventCancellable)event).isCancelled()) return;
+		 *         
+		 *       }
+		 *     }
+		 *   }
+		 *   
+		 * }
+		 * 
+		 * ...
+		 */
+
 		for(Entry<Class<? extends Event>, List<InternalMethodEntry>> e : this.registeredEntries.entrySet()) {
 			String eventClassGroup = BytecodeHelper.getClassType(e.getKey());
 
 			CompilationNode eventClassNode = new CompilationNode(e.getKey().getName());
 			eventNode.addChild(eventClassNode);
-
-			/*
-			 * Pseudo code, runs for every listener method:
-			 * 
-			 * //Optional check, only present if subclasses are also accepted
-			 * if(event instanceof listenerArray[n].eventType) {
-			 * //Replacement for when subclasses are not accepted
-			 * if(event.getClass() == listenerArray[n].eventType) {
-			 * 
-			 *   //Optional check, only present if filter is not default IFilter class
-			 *   if(filterArray[p].filter(listenerArray[n], event) {
-			 *   
-			 *     //Optional check, only present if the compiled method with the cancellable code is used
-			 *     if(event instanceof IEventCancellable == false ||
-			 *        !((IEventCancellable)event).isCancelled()) {
-			 *        
-			 *       //Invokes the listener method
-			 *       listenerArray[n].invokeMethod(event);
-			 *       
-			 *       //Optional check, only present if the compiled method with the cancellable code is used
-			 *       if(event instanceof IEventCancellable) {
-			 *       
-			 *         //Optional check, only present if the compiled method with the cancellable code is used
-			 *         if(((IEventCancellable)event).isCancelled()) return;
-			 *         
-			 *       }
-			 *     }
-			 *   }
-			 *   
-			 * }
-			 * 
-			 * ...
-			 */
 
 			CompilationNode staticListenersNode = new CompilationNode("Static Listeners");
 			eventClassNode.addChild(staticListenersNode);
@@ -811,8 +819,7 @@ public class DRCEventBus implements IEventBus, ICopyable, ICompilableBus {
 			for(InternalMethodEntry listenerEntry : e.getValue()) {
 				//Instrument dispatcher for listener
 				this.instrumentSingleDispatcher(instructionSet, listenerEntry, 
-						BytecodeHelper.getClassType(listenerEntry.eventClass), cancellable, exitNode, 
-						classCompareFailLabelNode, staticListenersNode);
+						BytecodeHelper.getClassType(listenerEntry.eventClass), cancellable, exitNode, staticListenersNode);
 			}
 
 			//Jumped to if class comparison fails
@@ -827,16 +834,9 @@ public class DRCEventBus implements IEventBus, ICopyable, ICompilableBus {
 		instructionSet.add(new JumpInsnNode(Opcodes.IFNE, exitNode));
 
 		for(InternalMethodEntry listenerEntry : this.subclassListeners) {
-			//Fail label, jumped to if class comparison fails
-			LabelNode classInstanceofFailLabelNode = new LabelNode();
-
 			//Instrument dispatcher for listener
 			this.instrumentSingleDispatcher(instructionSet, listenerEntry,
-					BytecodeHelper.getClassType(listenerEntry.eventClass), cancellable, exitNode, 
-					classInstanceofFailLabelNode, dynamicListenersNode);
-
-			//Jumped to if instanceof check fails
-			instructionSet.add(classInstanceofFailLabelNode);
+					BytecodeHelper.getClassType(listenerEntry.eventClass), cancellable, exitNode, dynamicListenersNode);
 		}
 
 
@@ -863,12 +863,11 @@ public class DRCEventBus implements IEventBus, ICopyable, ICompilableBus {
 	 * @param eventClassName
 	 * @param cancellable
 	 * @param exitLabelNode
-	 * @param failailLabelNode
 	 */
 	private final synchronized void instrumentSingleDispatcher(ArrayList<AbstractInsnNode> instructionSet, InternalMethodEntry listenerEntry, 
-			String eventClassName, boolean cancellable, LabelNode exitLabelNode, LabelNode failailLabelNode, CompilationNode compilationNode) {
+			String eventClassName, boolean cancellable, LabelNode exitLabelNode, CompilationNode compilationNode) {
 		String className = BytecodeHelper.getClassType(this.dispatcherClass);
-		String fieldType = BytecodeHelper.getArrayClassParamType(IListener.class);
+		String fieldType = BytecodeHelper.getArrayObjectType(IListener.class);
 		String listenerClassName = BytecodeHelper.getClassType(listenerEntry.instance.getClass());
 		String listenerMethodName = listenerEntry.methodName;
 		String listenerMethodType = BytecodeHelper.getListenerMethodType(eventClassName);
@@ -884,15 +883,14 @@ public class DRCEventBus implements IEventBus, ICopyable, ICompilableBus {
 		listenerNode.addChild(priorityNode);
 
 		//Used for filter fail jump or subclass check fail jump (only if subclasses are not accepted)
-		LabelNode entryFailLabelNode = null;
+		LabelNode entryFailLabelNode = new LabelNode();
 
 		//Only implement if filter is not default IFilter class
 		//if(!filterArray[n].filter(listenerArray[p], event)) -> jump to entryFailLabelNode
 		if(listenerEntry.filter != null) {
-			entryFailLabelNode = new LabelNode();
 			int filterIndex = this.filterIndexLookup.get(listenerEntry);
 			String filterClassName = BytecodeHelper.getClassType(listenerEntry.filter.getClass());
-			String filterFieldType = BytecodeHelper.getArrayClassParamType(IFilter.class);
+			String filterFieldType = BytecodeHelper.getArrayObjectType(IFilter.class);
 			String filterMethodType = BytecodeHelper.getFilterMethodType();
 
 			//get filter array
@@ -949,7 +947,7 @@ public class DRCEventBus implements IEventBus, ICopyable, ICompilableBus {
 			instructionSet.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, listenerClassName, ILISTENER_IS_ENABLED, "()Z", false));
 
 			//jump to failLabelNode if returned boolean is false
-			instructionSet.add(new JumpInsnNode(Opcodes.IFEQ, failailLabelNode));
+			instructionSet.add(new JumpInsnNode(Opcodes.IFEQ, entryFailLabelNode));
 		}
 
 		///////////////////////////////// Invoke listener method /////////////////////////////////
@@ -982,10 +980,7 @@ public class DRCEventBus implements IEventBus, ICopyable, ICompilableBus {
 			listenerNode.addChild(filterNode);
 		}
 
-		//Only implement if filter is not default IFilter class or subclasses are not accepted
-		if(entryFailLabelNode != null) {
-			instructionSet.add(entryFailLabelNode);
-		}
+		instructionSet.add(entryFailLabelNode);
 	}
 
 	/**
@@ -1082,5 +1077,14 @@ public class DRCEventBus implements IEventBus, ICopyable, ICompilableBus {
 	 */
 	protected boolean instrumentDispatcher(List<AbstractInsnNode> baseInstructions, MethodNode methodNode) {
 		return true;
+	}
+
+	/**
+	 * Dumps the bytecode of the compiled dispatcher
+	 * @param stream Stream to write to
+	 * @throws IOException 
+	 */
+	public void dumpBytecode(OutputStream stream) throws IOException {
+		if(this.dispatcherClassBytes != null) stream.write(this.dispatcherClassBytes);
 	}
 }
