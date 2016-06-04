@@ -17,7 +17,7 @@ import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TypeInsnNode;
 
-import tcb.bces.BytecodeHelper;
+import tcb.bces.BytecodeUtil;
 import tcb.bces.InstrumentationClassLoader;
 
 /**
@@ -150,12 +150,12 @@ public final class Hook {
 									return bytecode;
 								}
 
-								String className = BytecodeHelper.getClassType(HookBuilder.this.clazz);
+								String className = BytecodeUtil.getClassType(HookBuilder.this.clazz);
 
 								if(!HookBuilder.this.staticHook) {
 									//Load instance
 									methodInstructionSet.insertBefore(implementationNode, new IntInsnNode(Opcodes.ALOAD, 0));
-									methodInstructionSet.insertBefore(implementationNode, new FieldInsnNode(Opcodes.GETFIELD, BytecodeHelper.getClassType(HookInvoker.class), FIELD_INSTANCE, "Ljava/lang/Object;"));
+									methodInstructionSet.insertBefore(implementationNode, new FieldInsnNode(Opcodes.GETFIELD, BytecodeUtil.getClassType(HookInvoker.class), FIELD_INSTANCE, "Ljava/lang/Object;"));
 									methodInstructionSet.insertBefore(implementationNode, new TypeInsnNode(Opcodes.CHECKCAST, className));
 								}
 
@@ -164,26 +164,26 @@ public final class Hook {
 								for(int i = 0; i < methodParams.length; i++) {
 									//Push argument onto stack
 									methodInstructionSet.insertBefore(implementationNode, new IntInsnNode(Opcodes.ALOAD, 1));
-									methodInstructionSet.insertBefore(implementationNode, BytecodeHelper.getOptimizedIndex(i));
+									methodInstructionSet.insertBefore(implementationNode, BytecodeUtil.getOptimizedIndex(i));
 									methodInstructionSet.insertBefore(implementationNode, new InsnNode(Opcodes.AALOAD));
 									Class<?> type = methodParams[i];
 									//Cast argument or convert primitives
 									if(!type.isPrimitive()) {
-										methodInstructionSet.insertBefore(implementationNode, new TypeInsnNode(Opcodes.CHECKCAST, BytecodeHelper.getClassType(methodParams[i])));
+										methodInstructionSet.insertBefore(implementationNode, new TypeInsnNode(Opcodes.CHECKCAST, BytecodeUtil.getClassType(methodParams[i])));
 									} else {
-										AbstractInsnNode[] converter = BytecodeHelper.getObject2PrimitiveConverter(type);
+										AbstractInsnNode[] converter = BytecodeUtil.getObject2PrimitiveConverter(type);
 										methodInstructionSet.insertBefore(implementationNode, converter[0]);
 										methodInstructionSet.insertBefore(implementationNode, converter[1]);
 									}
 								}
 
 								//Invoke
-								methodInstructionSet.insertBefore(implementationNode, new MethodInsnNode(HookBuilder.this.staticHook ? Opcodes.INVOKESTATIC : Opcodes.INVOKEVIRTUAL, className, HookBuilder.this.method.getName(), BytecodeHelper.getMethodType(method), false));
+								methodInstructionSet.insertBefore(implementationNode, new MethodInsnNode(HookBuilder.this.staticHook ? Opcodes.INVOKESTATIC : Opcodes.INVOKEVIRTUAL, className, HookBuilder.this.method.getName(), BytecodeUtil.getMethodType(method), false));
 
 								//Convert and return if required
 								if(method.getReturnType() != void.class) {
 									if(method.getReturnType().isPrimitive()) {
-										methodInstructionSet.insertBefore(implementationNode, BytecodeHelper.getPrimitive2ObjectConverter(method.getReturnType()));
+										methodInstructionSet.insertBefore(implementationNode, BytecodeUtil.getPrimitive2ObjectConverter(method.getReturnType()));
 									}
 
 									methodInstructionSet.insertBefore(implementationNode, new InsnNode(Opcodes.ARETURN));

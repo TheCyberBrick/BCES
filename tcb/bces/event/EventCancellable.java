@@ -7,28 +7,20 @@ package tcb.bces.event;
  * @author TCB
  *
  */
-public abstract class EventCancellable extends Event {
+public abstract class EventCancellable extends Event implements IEventCancellable {
 	private boolean isCancelled = false;
-	
-	/**
-	 * Sets this event to cancelled
-	 */
+
+	@Override
 	public void setCancelled() {
 		this.isCancelled = true;
 	}
-	
-	/**
-	 * Sets the cancelled state of this event
-	 * @param cancelled the cancelled state
-	 */
+
+	@Override
 	public void setCancelled(boolean cancelled) {
 		this.isCancelled = cancelled;
 	}
-	
-	/**
-	 * Returns whether this event is cancelled
-	 * @return cancelled
-	 */
+
+	@Override
 	public boolean isCancelled() {
 		return this.isCancelled;
 	}

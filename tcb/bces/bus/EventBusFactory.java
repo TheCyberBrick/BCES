@@ -12,10 +12,10 @@ import tcb.bces.listener.IListener;
  *
  */
 public class EventBusFactory {
-	public static final class EventBus implements IEventBus, ICompilableBus {
+	public static final class WrappedEventBus implements IEventBus, ICompilableBus {
 		private final IEventBus wrappedBus;
 
-		private EventBus(IEventBus wrappedBus) {
+		private WrappedEventBus(IEventBus wrappedBus) {
 			this.wrappedBus = wrappedBus;
 		}
 
@@ -47,8 +47,8 @@ public class EventBusFactory {
 	 * 
 	 * @return
 	 */
-	public static EventBus createDRCEventBus() {
-		return new EventBus(new DRCExpander<DRCEventBus>(new DRCEventBus()));
+	public static WrappedEventBus createDRCEventBus() {
+		return new WrappedEventBus(new DRCExpander<DRCEventBus>(new DRCEventBus()));
 	}
 
 	/**
@@ -56,8 +56,8 @@ public class EventBusFactory {
 	 * 
 	 * @return
 	 */
-	public static EventBus createMapEventBus() {
-		return new EventBus(new MappedEventBus());
+	public static WrappedEventBus createMapEventBus() {
+		return new WrappedEventBus(new MappedEventBus());
 	}
 
 	/**
@@ -67,7 +67,7 @@ public class EventBusFactory {
 	 * @param feedbackHandler Feedback handler (can be null if not required)
 	 * @return
 	 */
-	public static EventBus createAsyncEventBus(int threads, IFeedbackHandler feedbackHandler) {
-		return new EventBus(new DRCAsyncEventBus(threads, false).setFeedbackHandler(feedbackHandler));
+	public static WrappedEventBus createAsyncEventBus(int threads, IFeedbackHandler feedbackHandler) {
+		return new WrappedEventBus(new DRCAsyncEventBus(threads, false).setFeedbackHandler(feedbackHandler));
 	}
 }

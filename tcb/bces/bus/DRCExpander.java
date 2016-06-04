@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
-import tcb.bces.bus.DRCEventBus.MethodEntry;
 import tcb.bces.bus.compilation.CompilationNode;
 import tcb.bces.event.Event;
 import tcb.bces.listener.IListener;
@@ -26,7 +25,7 @@ import tcb.bces.listener.SubscriptionException;
 public class DRCExpander<B extends DRCEventBus> implements IEventBus, ICompilableBus {
 	private final ArrayList<B> busCollection = new ArrayList<B>();
 	private final HashMap<Class<? extends Event>, List<B>> busMap = new HashMap<Class<? extends Event>, List<B>>();
-	private final List<MethodEntry> registeredMethodEntries = new ArrayList<MethodEntry>();
+	private final List<MethodContext> registeredMethodEntries = new ArrayList<MethodContext>();
 	private DRCEventBus currentBus = null;
 	private final int maxMethodEntriesPerBus;
 	private boolean singleBus = true;
@@ -34,7 +33,7 @@ public class DRCExpander<B extends DRCEventBus> implements IEventBus, ICompilabl
 	private Class<B> busType;
 
 	/**
-	 * Initializes a new {@link DRCExpander} with a maximum method entry limit per bus of 50 method entries (recommended).
+	 * Initializes a new {@link DRCExpander} with a maximum method context limit per bus of 50 method contexts (recommended).
 	 */
 	@SuppressWarnings("unchecked")
 	public DRCExpander(B busInstance) {
@@ -44,8 +43,8 @@ public class DRCExpander<B extends DRCEventBus> implements IEventBus, ICompilabl
 	}
 
 	/**
-	 * Initializes a new {@link DRCExpander} with a specified maximum method entry limit per bus.
-	 * Maximum limit of method entries per bus is {@link DRCEventBus#MAX_METHODS}
+	 * Initializes a new {@link DRCExpander} with a specified maximum method context limit per bus.
+	 * Maximum limit of method contexts per bus is {@link DRCEventBus#MAX_METHODS}
 	 * @param maxMethodsPerBus Integer
 	 */
 	@SuppressWarnings("unchecked")
@@ -74,10 +73,10 @@ public class DRCExpander<B extends DRCEventBus> implements IEventBus, ICompilabl
 	 * A {@link SubscriptionException} is thrown if an invalid method has been found.
 	 * @param listener {@link IListener} to register
 	 * @throws SubscriptionException
-	 * @return {@link List} read-only list of all found valid method entries
+	 * @return {@link List} read-only list of all found valid method contexts
 	 */
-	public final List<MethodEntry> registerAndAnalyze(IListener listener) throws SubscriptionException {
-		List<MethodEntry> entries = DRCEventBus.analyzeListener(listener);
+	public final List<MethodContext> registerAndAnalyze(IListener listener) throws SubscriptionException {
+		List<MethodContext> entries = MethodContext.getMethodContexts(listener);
 		this.registeredMethodEntries.addAll(entries);
 		return Collections.unmodifiableList(entries);
 	}
@@ -102,10 +101,10 @@ public class DRCExpander<B extends DRCEventBus> implements IEventBus, ICompilabl
 	@Override
 	public final void unregister(IListener listener) {
 		for(Method method : listener.getClass().getDeclaredMethods()) {
-			Iterator<MethodEntry> it = this.registeredMethodEntries.iterator();
+			Iterator<MethodContext> it = this.registeredMethodEntries.iterator();
 			while(it.hasNext()) {
-				MethodEntry entry = it.next();
-				if(entry.getMethod().equals(method) && entry.getListener() == listener) {
+				MethodContext context = it.next();
+				if(context.getMethod().equals(method) && context.getListener() == listener) {
 					it.remove();
 					break;
 				}
@@ -114,24 +113,24 @@ public class DRCExpander<B extends DRCEventBus> implements IEventBus, ICompilabl
 	}
 
 	/**
-	 * Registers a single {@link MethodEntry} to the {@link DRCExpander}. The event bus has to be updated with {@link DRCExpander#bind()} for the new {@link MethodEntry} to take effect.
-	 * @param entry {@link MethodEntry} to register
+	 * Registers a single {@link MethodContext} to the {@link DRCExpander}. The event bus has to be updated with {@link DRCExpander#bind()} for the new {@link MethodContext} to take effect.
+	 * @param context {@link MethodContext} to register
 	 */
-	public final void register(MethodEntry entry) {
-		this.registeredMethodEntries.add(entry);
+	public final void register(MethodContext context) {
+		this.registeredMethodEntries.add(context);
 	}
 
 	/**
-	 * Unregisters a {@link MethodEntry} from the {@link DRCExpander}. The event bus has to be updated with {@link DRCExpander#bind()} for this to take effect.
-	 * Only unregisters the first occurrence of the specified method entry.
-	 * @param methodEntry {@link MethodEntry} to unregister
+	 * Unregisters a {@link MethodContext} from the {@link DRCExpander}. The event bus has to be updated with {@link DRCExpander#bind()} for this to take effect.
+	 * Only unregisters the first occurrence of the specified method context.
+	 * @param methodEntry {@link MethodContext} to unregister
 	 */
-	public final void unregister(MethodEntry entry) {
-		this.registeredMethodEntries.remove(entry);
+	public final void unregister(MethodContext context) {
+		this.registeredMethodEntries.remove(context);
 	}
 
 	/**
-	 * Compiles the internal event dispatcher and binds all registered listeners. Required for new method entries or dispatcher to take effect.
+	 * Compiles the internal event dispatcher and binds all registered listeners. Required for new method contexts or dispatcher to take effect.
 	 * For optimal performance this method should be called after all listeners have been
 	 * registered.
 	 */
@@ -140,11 +139,11 @@ public class DRCExpander<B extends DRCEventBus> implements IEventBus, ICompilabl
 		this.busCollection.clear();
 		this.busMap.clear();
 		this.singleBus = true;
-		for(List<MethodEntry> mel : this.getSortedMethodEntries()) {
+		for(List<MethodContext> mel : this.getSortedMethodEntries()) {
 			@SuppressWarnings("unchecked")
 			B bus = (B) this.busInstance.copyBus();
 			this.currentBus = bus;
-			for(MethodEntry me : mel) {
+			for(MethodContext me : mel) {
 				bus.register(me);
 				List<B> busList = this.busMap.get(me.getEventClass());
 				if(busList == null) {
@@ -187,29 +186,29 @@ public class DRCExpander<B extends DRCEventBus> implements IEventBus, ICompilabl
 	}
 
 	/**
-	 * Returns a list of all registered method entries grouped by event type.
+	 * Returns a list of all registered method contexts grouped by event type.
 	 * @return List<List<MethodEntry>>
 	 */
-	private final List<List<MethodEntry>> getSortedMethodEntries() {
-		HashMap<Class<? extends Event>, List<MethodEntry>> eventListenerMap = new HashMap<Class<? extends Event>, List<MethodEntry>>();
-		for(MethodEntry me : this.registeredMethodEntries) {
-			List<MethodEntry> mel = eventListenerMap.get(me.getEventClass());
+	private final List<List<MethodContext>> getSortedMethodEntries() {
+		HashMap<Class<? extends Event>, List<MethodContext>> eventListenerMap = new HashMap<Class<? extends Event>, List<MethodContext>>();
+		for(MethodContext me : this.registeredMethodEntries) {
+			List<MethodContext> mel = eventListenerMap.get(me.getEventClass());
 			if(mel == null) {
-				mel = new ArrayList<MethodEntry>();
+				mel = new ArrayList<MethodContext>();
 				eventListenerMap.put(me.getEventClass(), mel);
 			}
 			mel.add(me);
 		}
 		int index = 0;
-		Iterator<Entry<Class<? extends Event>, List<MethodEntry>>> it = eventListenerMap.entrySet().iterator();
-		List<List<MethodEntry>> methodEntryList = new ArrayList<List<MethodEntry>>();
-		List<MethodEntry> currentList = new ArrayList<MethodEntry>();
+		Iterator<Entry<Class<? extends Event>, List<MethodContext>>> it = eventListenerMap.entrySet().iterator();
+		List<List<MethodContext>> methodEntryList = new ArrayList<List<MethodContext>>();
+		List<MethodContext> currentList = new ArrayList<MethodContext>();
 		while(it.hasNext()) {
-			List<MethodEntry> mel = it.next().getValue();
-			for(MethodEntry me : mel) {
+			List<MethodContext> mel = it.next().getValue();
+			for(MethodContext me : mel) {
 				if(index >= this.maxMethodEntriesPerBus) {
 					methodEntryList.add(currentList);
-					currentList = new ArrayList<MethodEntry>();
+					currentList = new ArrayList<MethodContext>();
 					this.singleBus = false;
 					index = 0;
 				}

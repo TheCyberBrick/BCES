@@ -13,7 +13,7 @@ import org.objectweb.asm.tree.TypeInsnNode;
 
 import tcb.bces.event.Event;
 
-public class BytecodeHelper {
+public class BytecodeUtil {
 	public static String getClassType(Class<?> clazz) {
 		return clazz.getName().replace(".", "/");
 	}
@@ -69,35 +69,35 @@ public class BytecodeHelper {
 		String convertMethod = null;
 		String convertMethodType = null;
 		if(type == int.class) {
-			classType = BytecodeHelper.getClassType(Integer.class);
+			classType = BytecodeUtil.getClassType(Integer.class);
 			convertMethod = "intValue";
 			convertMethodType = "()I";
 		} else if(type == boolean.class) {
-			classType = BytecodeHelper.getClassType(Boolean.class);
+			classType = BytecodeUtil.getClassType(Boolean.class);
 			convertMethod = "booleanValue";
 			convertMethodType = "()Z";
 		} else if(type == byte.class) {
-			classType = BytecodeHelper.getClassType(Byte.class);
+			classType = BytecodeUtil.getClassType(Byte.class);
 			convertMethod = "byteValue";
 			convertMethodType = "()B";
 		} else if(type == char.class) {
-			classType = BytecodeHelper.getClassType(Character.class);
+			classType = BytecodeUtil.getClassType(Character.class);
 			convertMethod = "charValue";
 			convertMethodType = "()C";
 		} else if(type == double.class) {
-			classType = BytecodeHelper.getClassType(Double.class);
+			classType = BytecodeUtil.getClassType(Double.class);
 			convertMethod = "doubleValue";
 			convertMethodType = "()D";
 		} else if(type == float.class) {
-			classType = BytecodeHelper.getClassType(Float.class);
+			classType = BytecodeUtil.getClassType(Float.class);
 			convertMethod = "floatValue";
 			convertMethodType = "()F";
 		} else if(type == long.class) {
-			classType = BytecodeHelper.getClassType(Long.class);
+			classType = BytecodeUtil.getClassType(Long.class);
 			convertMethod = "longValue";
 			convertMethodType = "()J";
 		} else if(type == short.class) {
-			classType = BytecodeHelper.getClassType(Short.class);
+			classType = BytecodeUtil.getClassType(Short.class);
 			convertMethod = "shortValue";
 			convertMethodType = "()S";
 		}
@@ -112,35 +112,35 @@ public class BytecodeHelper {
 		String convertMethod = null;
 		String convertMethodType = null;
 		if(type == int.class) {
-			classType = BytecodeHelper.getClassType(Integer.class);
+			classType = BytecodeUtil.getClassType(Integer.class);
 			convertMethod = "valueOf";
 			convertMethodType = "(I)Ljava/lang/Integer;";
 		} else if(type == boolean.class) {
-			classType = BytecodeHelper.getClassType(Boolean.class);
+			classType = BytecodeUtil.getClassType(Boolean.class);
 			convertMethod = "valueOf";
 			convertMethodType = "(Z)Ljava/lang/Boolean;";
 		} else if(type == byte.class) {
-			classType = BytecodeHelper.getClassType(Byte.class);
+			classType = BytecodeUtil.getClassType(Byte.class);
 			convertMethod = "valueOf";
 			convertMethodType = "(B)Ljava/lang/Byte;";
 		} else if(type == char.class) {
-			classType = BytecodeHelper.getClassType(Character.class);
+			classType = BytecodeUtil.getClassType(Character.class);
 			convertMethod = "valueOf";
 			convertMethodType = "(C)Ljava/lang/Character;";
 		} else if(type == double.class) {
-			classType = BytecodeHelper.getClassType(Double.class);
+			classType = BytecodeUtil.getClassType(Double.class);
 			convertMethod = "valueOf";
 			convertMethodType = "(D)Ljava/lang/Double;";
 		} else if(type == float.class) {
-			classType = BytecodeHelper.getClassType(Float.class);
+			classType = BytecodeUtil.getClassType(Float.class);
 			convertMethod = "valueOf";
 			convertMethodType = "(F)Ljava/lang/Float;";
 		} else if(type == long.class) {
-			classType = BytecodeHelper.getClassType(Long.class);
+			classType = BytecodeUtil.getClassType(Long.class);
 			convertMethod = "valueOf";
 			convertMethodType = "(J)Ljava/lang/Long;";
 		} else if(type == short.class) {
-			classType = BytecodeHelper.getClassType(Short.class);
+			classType = BytecodeUtil.getClassType(Short.class);
 			convertMethod = "valueOf";
 			convertMethodType = "(S)Ljava/lang/Short;";
 		}

@@ -42,7 +42,8 @@ public @interface Subscribe {
 	/**
 	 * Sets the event filter. If the filter returns false, the event is not passed to
 	 * the listener. The filter must implement {@link IFilter} and have a custom no-arg constructor 
-	 * or a default no-arg constructor and the class must be public and must not be abstract or interface. 
+	 * or a default no-arg constructor and the class must be public and must not be abstract or interface.
+	 * The constructor may have any visibility modifier.
 	 * A SubscriptionException is thrown if no such constructor can be found or if the class
 	 * is not public or has invalid modifiers such as abstract or interface.
 	 * @return {@link Class}

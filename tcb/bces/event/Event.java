@@ -19,12 +19,12 @@ public abstract class Event implements IEvent {
 	@SuppressWarnings("unchecked")
 	public final <T extends IContext> T getContext(Class<T> type) {
 		if(type == null) return (T) this.context;
-		if(this.context.getClass() == type) {
+		if(this.context != null && this.context.getClass() == type) {
 			return (T) this.context;
 		}
 		return null;
 	}
-	
+
 	/**
 	 * Returns the context of this event
 	 * @return {@link Context} the context

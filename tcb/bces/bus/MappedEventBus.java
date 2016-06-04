@@ -11,9 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
-import tcb.bces.bus.DRCEventBus.MethodEntry;
 import tcb.bces.event.Event;
-import tcb.bces.event.EventCancellable;
+import tcb.bces.event.IEventCancellable;
 import tcb.bces.listener.IListener;
 import tcb.bces.listener.Subscribe;
 
@@ -26,18 +25,18 @@ import tcb.bces.listener.Subscribe;
  *
  */
 public class MappedEventBus implements IEventBus {
-	private final Map<Class<? extends Event>, List<MethodEntry>> eventListenerMap = new HashMap<Class<? extends Event>, List<MethodEntry>>();
-	private final List<MethodEntry> subclassListeners = new ArrayList<MethodEntry>();
+	private final Map<Class<? extends Event>, List<MethodContext>> eventListenerMap = new HashMap<Class<? extends Event>, List<MethodContext>>();
+	private final List<MethodContext> subclassListeners = new ArrayList<MethodContext>();
 
 	@Override
 	public void register(IListener listener) {
-		List<MethodEntry> methodEntries = DRCEventBus.analyzeListener(listener);
-		List<List<MethodEntry>> modifiedLists = new ArrayList<List<MethodEntry>>();
+		List<MethodContext> methodEntries = MethodContext.getMethodContexts(listener);
+		List<List<MethodContext>> modifiedLists = new ArrayList<List<MethodContext>>();
 		boolean subclassListenersModified = false;
-		for(MethodEntry me : methodEntries) {
-			List<MethodEntry> listeners = this.eventListenerMap.get(me.getEventClass());
+		for(MethodContext me : methodEntries) {
+			List<MethodContext> listeners = this.eventListenerMap.get(me.getEventClass());
 			if(listeners == null) {
-				listeners = new ArrayList<MethodEntry>();
+				listeners = new ArrayList<MethodContext>();
 				this.eventListenerMap.put(me.getEventClass(), listeners);
 			}
 			listeners.add(me);
@@ -47,8 +46,8 @@ public class MappedEventBus implements IEventBus {
 			if(me.getHandlerAnnotation().acceptSubclasses()) {
 				//Calculate the correct maximum amount of subclass listeners
 				int maxContainedEntriesSubclassList = 0;
-				for(Entry<Class<? extends Event>, List<MethodEntry>> regEntry : this.eventListenerMap.entrySet()) {
-					for(MethodEntry regMethodEntry : regEntry.getValue()) {
+				for(Entry<Class<? extends Event>, List<MethodContext>> regEntry : this.eventListenerMap.entrySet()) {
+					for(MethodContext regMethodEntry : regEntry.getValue()) {
 						if(regMethodEntry.getEventClass().equals(regEntry.getKey()) && regMethodEntry.getMethod().equals(me.getMethod()) && regMethodEntry.getListener() == me.getListener()) {
 							maxContainedEntriesSubclassList++;
 						}
@@ -57,7 +56,7 @@ public class MappedEventBus implements IEventBus {
 
 				//Add to subclass listeners list
 				int containedEntries = 0;
-				for(MethodEntry scl : this.subclassListeners) {
+				for(MethodContext scl : this.subclassListeners) {
 					if(scl.getMethod().equals(me.getMethod()) && scl.getListener() == me.getListener()) {
 						containedEntries++;
 					}
@@ -72,12 +71,12 @@ public class MappedEventBus implements IEventBus {
 			modifiedLists.add(this.subclassListeners);
 		}
 		//Check for any registered subclasses of the event types and add listeners to that list
-		Iterator<Entry<Class<? extends Event>, List<MethodEntry>>> entryIterator = this.eventListenerMap.entrySet().iterator();
+		Iterator<Entry<Class<? extends Event>, List<MethodContext>>> entryIterator = this.eventListenerMap.entrySet().iterator();
 		while(entryIterator.hasNext()) {
-			Entry<Class<? extends Event>, List<MethodEntry>> entry = entryIterator.next();
+			Entry<Class<? extends Event>, List<MethodContext>> entry = entryIterator.next();
 			Class<? extends Event> eventClass = entry.getKey();
-			List<MethodEntry> methodEntryList = entry.getValue();
-			for(MethodEntry me : methodEntries) {
+			List<MethodContext> methodEntryList = entry.getValue();
+			for(MethodContext me : methodEntries) {
 				if(me.getHandlerAnnotation().acceptSubclasses() && me.getEventClass().isAssignableFrom(eventClass) && !me.getEventClass().equals(eventClass)) {
 					methodEntryList.add(me);
 					if(!modifiedLists.contains(methodEntryList)) {
@@ -87,13 +86,13 @@ public class MappedEventBus implements IEventBus {
 			}
 		}
 		//Update priorities
-		Comparator<MethodEntry> prioritySorter = new Comparator<MethodEntry>() {
+		Comparator<MethodContext> prioritySorter = new Comparator<MethodContext>() {
 			@Override
-			public int compare(MethodEntry e1, MethodEntry e2) {
+			public int compare(MethodContext e1, MethodContext e2) {
 				return e2.getHandlerAnnotation().priority() - e1.getHandlerAnnotation().priority();
 			}
 		};
-		for(List<MethodEntry> methodEntryList : modifiedLists) {
+		for(List<MethodContext> methodEntryList : modifiedLists) {
 			Collections.sort(methodEntryList, prioritySorter);
 		}
 	}
@@ -117,13 +116,13 @@ public class MappedEventBus implements IEventBus {
 				}
 
 				//Remove from regular map
-				Iterator<Entry<Class<? extends Event>, List<MethodEntry>>> mapEntryIT = this.eventListenerMap.entrySet().iterator();
+				Iterator<Entry<Class<? extends Event>, List<MethodContext>>> mapEntryIT = this.eventListenerMap.entrySet().iterator();
 				while(mapEntryIT.hasNext()) {
-					Entry<Class<? extends Event>, List<MethodEntry>> mapEntry = mapEntryIT.next();
-					List<MethodEntry> methodEntries = mapEntry.getValue();
-					Iterator<MethodEntry> methodEntryIterator = methodEntries.iterator();
+					Entry<Class<? extends Event>, List<MethodContext>> mapEntry = mapEntryIT.next();
+					List<MethodContext> methodEntries = mapEntry.getValue();
+					Iterator<MethodContext> methodEntryIterator = methodEntries.iterator();
 					while(methodEntryIterator.hasNext()) {
-						MethodEntry me = methodEntryIterator.next();
+						MethodContext me = methodEntryIterator.next();
 						if(me.getMethod().equals(method) && me.getListener() == listener) {
 							methodEntryIterator.remove();
 							break;
@@ -135,9 +134,9 @@ public class MappedEventBus implements IEventBus {
 				}
 
 				//Remove from subclass list
-				Iterator<MethodEntry> subclassListenersIT = this.subclassListeners.iterator();
+				Iterator<MethodContext> subclassListenersIT = this.subclassListeners.iterator();
 				while(subclassListenersIT.hasNext()) {
-					MethodEntry entry = subclassListenersIT.next();
+					MethodContext entry = subclassListenersIT.next();
 					if(entry.getMethod().equals(method) && entry.getListener() == listener) {
 						subclassListenersIT.remove();
 					}
@@ -149,16 +148,16 @@ public class MappedEventBus implements IEventBus {
 	@Override
 	public <T extends Event> T post(T event) {
 		Class<?> eventClass = event.getClass();
-		List<MethodEntry> methodEntries = this.eventListenerMap.get(eventClass);
-		EventCancellable eventCancellable = null;
-		if(event instanceof EventCancellable) {
-			eventCancellable = (EventCancellable) event;
+		List<MethodContext> methodEntries = this.eventListenerMap.get(eventClass);
+		IEventCancellable eventCancellable = null;
+		if(event instanceof IEventCancellable) {
+			eventCancellable = (IEventCancellable) event;
 		}
 		boolean contained = false;
 		if(methodEntries != null) {
 			contained = true;
-			for(MethodEntry me : methodEntries) {
-				if(me.getHandlerAnnotation().forced() || me.getListener().isEnabled()) {
+			for(MethodContext me : methodEntries) {
+				if((me.getHandlerAnnotation().forced() || me.getListener().isEnabled()) && (me.getFilter() == null || me.getFilter().filter(event))) {
 					try {
 						me.invoke(event);
 						if(eventCancellable != null && eventCancellable.isCancelled()) {
@@ -171,8 +170,8 @@ public class MappedEventBus implements IEventBus {
 			}
 		}
 		if(!contained) {
-			for(MethodEntry me : this.subclassListeners) {
-				if(me.getHandlerAnnotation().forced() || me.getListener().isEnabled()) {
+			for(MethodContext me : this.subclassListeners) {
+				if((me.getHandlerAnnotation().forced() || me.getListener().isEnabled()) && (me.getFilter() == null || me.getFilter().filter(event))) {
 					if(me.getEventClass() != eventClass) {
 						try {
 							me.invoke(event);

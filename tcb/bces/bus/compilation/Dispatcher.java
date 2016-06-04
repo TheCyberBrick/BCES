@@ -51,7 +51,10 @@ public abstract class Dispatcher {
 	 * @param listenerArray {@link IListener}[]
 	 * @param filterArray {@link IFilter}[]
 	 */
-	public abstract void init(IListener[] listenerArray, IFilter[] filterArray);
+	public void init(IListener[] listenerArray, IFilter[] filterArray) {
+		this.listenerArray = listenerArray;
+		this.filterArray = filterArray;
+	}
 
 	/**
 	 * This method can only be used in {@link Dispatcher#dispatchEvent(Event)} 

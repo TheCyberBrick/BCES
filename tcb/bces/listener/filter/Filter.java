@@ -1,6 +1,6 @@
 package tcb.bces.listener.filter;
 
-import tcb.bces.bus.DRCEventBus.MethodEntry;
+import tcb.bces.bus.MethodContext;
 import tcb.bces.event.Event;
 import tcb.bces.listener.Subscribe;
 
@@ -11,7 +11,7 @@ import tcb.bces.listener.Subscribe;
  *
  */
 public abstract class Filter implements IFilter {
-	private MethodEntry methodEntry;
+	private MethodContext methodContext;
 
 	/**
 	 * A no-arg constructor must be present if this filter is set through
@@ -20,11 +20,11 @@ public abstract class Filter implements IFilter {
 	private Filter() {}
 
 	/**
-	 * Returns the method entry that uses this filter.
-	 * @return MethodEntry
+	 * Returns the method context that uses this filter.
+	 * @return {@link MethodContext}
 	 */
-	public MethodEntry getMethodEntry() {
-		return this.methodEntry;
+	public MethodContext getMethodContext() {
+		return this.methodContext;
 	}
 
 	/**
@@ -35,8 +35,8 @@ public abstract class Filter implements IFilter {
 	protected void init() { }
 
 	@Override
-	public final void init(MethodEntry entry) {
-		this.methodEntry = entry;
+	public final void init(MethodContext entry) {
+		this.methodContext = entry;
 		this.init();
 	}
 

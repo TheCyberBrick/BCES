@@ -13,7 +13,7 @@ public interface IEvent {
 	 * @return the instance this was called on
 	 */
 	public IEvent setContext(IContext context);
-	
+
 	/**
 	 * Returns the casted context of this event if the type matches.
 	 * Use null as parameter to get any context.

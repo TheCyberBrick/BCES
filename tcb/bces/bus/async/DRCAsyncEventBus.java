@@ -9,11 +9,12 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingDeque;
 
 import tcb.bces.bus.DRCEventBus;
-import tcb.bces.bus.IEventBus;
 import tcb.bces.bus.DRCExpander;
+import tcb.bces.bus.IEventBus;
+import tcb.bces.bus.MethodContext;
 import tcb.bces.bus.async.feedback.IFeedbackHandler;
 import tcb.bces.event.Event;
-import tcb.bces.event.EventCancellable;
+import tcb.bces.event.IEventCancellable;
 
 /**
  * This event bus allows asynchronous event posting. It still has all the features of
@@ -30,7 +31,7 @@ import tcb.bces.event.EventCancellable;
  */
 public class DRCAsyncEventBus extends DRCEventBus {
 	protected final BlockingQueue<Event> eventQueue = new LinkedBlockingDeque<Event>();
-	protected final BlockingQueue<EventCancellable> eventQueueCancellable = new LinkedBlockingDeque<EventCancellable>();
+	protected final BlockingQueue<IEventCancellable> eventQueueCancellable = new LinkedBlockingDeque<IEventCancellable>();
 	protected IFeedbackHandler feedbackHandler = null;
 	private final ArrayList<DispatcherThread> dispatchers = new ArrayList<DispatcherThread>();
 	private final ArrayList<DispatcherThread> sleepers = new ArrayList<DispatcherThread>();
@@ -163,7 +164,7 @@ public class DRCAsyncEventBus extends DRCEventBus {
 	 * Returns the read-only cancellable event queue.
 	 * @return Collection<IEventCancellable> read-only
 	 */
-	public final Collection<EventCancellable> getEventQueueCancellable() {
+	public final Collection<IEventCancellable> getEventQueueCancellable() {
 		return Collections.unmodifiableCollection(this.eventQueueCancellable);
 	}
 
@@ -248,7 +249,7 @@ public class DRCAsyncEventBus extends DRCEventBus {
 	public void bind() {
 		for(DispatcherThread dispatcher : this.dispatchers) {
 			dispatcher.getDispatcherBus().clear();
-			for(MethodEntry me : this.getMethodEntries()) {
+			for(MethodContext me : this.getMethodEntries()) {
 				dispatcher.getDispatcherBus().register(me);
 			}
 			dispatcher.getDispatcherBus().bind();
