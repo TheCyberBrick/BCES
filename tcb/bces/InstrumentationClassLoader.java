@@ -15,6 +15,7 @@ import java.lang.reflect.Constructor;
  * @param <T> Superclass of the class to be instrumentated
  */
 public abstract class InstrumentationClassLoader<T> extends ClassLoader {
+	private final ClassLoader parent;
 	public final Class<? extends T> instrumentedClass;
 
 	private Exception loadingException = null;
@@ -25,9 +26,12 @@ public abstract class InstrumentationClassLoader<T> extends ClassLoader {
 	 * to that class, unless it's done in the same class loader context. However, it 
 	 * can still be casted to it's superclass.
 	 * 
+	 * @param parent Parent class loader to delegate to
 	 * @param instrumentedClass Class to be instrumented
 	 */
-	public InstrumentationClassLoader(Class<? extends T> instrumentedClass) {
+	public InstrumentationClassLoader(ClassLoader parent, Class<? extends T> instrumentedClass) {
+		super(parent);
+		this.parent = parent;
 		this.instrumentedClass = instrumentedClass;
 	}
 
@@ -66,7 +70,10 @@ public abstract class InstrumentationClassLoader<T> extends ClassLoader {
 	@SuppressWarnings("unchecked")
 	@Override
 	public Class<? extends T> loadClass(String name) throws ClassNotFoundException {
-		return (Class<? extends T>) super.loadClass(name);
+		if(name.equals(this.instrumentedClass.getName())) {
+			return (Class<? extends T>) super.loadClass(name);
+		}
+		return (Class<? extends T>) this.parent.loadClass(name);
 	}
 
 	@SuppressWarnings("unchecked")

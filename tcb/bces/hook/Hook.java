@@ -110,8 +110,7 @@ public final class Hook {
 		 */
 		public Hook compile() throws Exception {
 			//Instrumentation classloader
-			InstrumentationClassLoader<HookInvoker> instrumentationClassLoader = new InstrumentationClassLoader<HookInvoker>(this.hookInvoker) {
-				@SuppressWarnings("unchecked")
+			InstrumentationClassLoader<HookInvoker> instrumentationClassLoader = new InstrumentationClassLoader<HookInvoker>(this.getClass().getClassLoader(), this.hookInvoker) {
 				@Override
 				protected byte[] instrument(byte[] bytecode) {
 					ClassReader classReader = new ClassReader(bytecode);

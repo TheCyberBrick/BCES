@@ -508,8 +508,7 @@ public class DRCEventBus implements IEventBus, ICopyable, ICompilableBus {
 			Collections.sort(this.subclassListeners, prioritySorter);
 
 			//Instrumentation classloader
-			InstrumentationClassLoader<Dispatcher> instrumentationClassLoader = new InstrumentationClassLoader<Dispatcher>(DRCEventBus.this.dispatcherClass) {
-				@SuppressWarnings("unchecked")
+			InstrumentationClassLoader<Dispatcher> instrumentationClassLoader = new InstrumentationClassLoader<Dispatcher>(this.getClass().getClassLoader(), DRCEventBus.this.dispatcherClass) {
 				@Override
 				protected byte[] instrument(byte[] bytecode) {
 					ClassReader classReader = new ClassReader(bytecode);
@@ -541,7 +540,6 @@ public class DRCEventBus implements IEventBus, ICopyable, ICompilableBus {
 	 * Modifies the internal event dispatching method.
 	 * @param methodNode {@link MethodNode}
 	 */
-	@SuppressWarnings("unchecked")
 	private final synchronized void instrumentDispatcher(MethodNode methodNode, boolean cancellable, CompilationNode mainNode) {
 		InsnList methodInstructionSet = methodNode.instructions;
 		ArrayList<AbstractInsnNode> instructionSet = new ArrayList<AbstractInsnNode>();
